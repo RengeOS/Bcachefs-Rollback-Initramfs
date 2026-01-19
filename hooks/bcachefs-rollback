@@ -9,7 +9,7 @@
 
 
 snapshot_dir=/.snapshots
-root="$snapshots_dir/@root"
+root="$snapshots_dir/@current-root"
 mountOpts='noatime,fix_errors'
 new_root=/new_root
 user=user
@@ -125,28 +125,39 @@ run_latehook() {
 		if [ $showMenu = 'true' ]; then
 			
 			echo -e "\n\nWhat would you like to do?
+-*-START-LIST-OPTIONS-*-
 
-<s> boot into a snapshot
+---Boot Option---
+<b> boot root system (/)
+<s> boot into a snapshot (/.snapshots/name-snapshot-folder)
+<x> boot into squashfs (name-squashfs-file.sfsquash)
+<c> boot custom dir
+
+---Restore Option---
+<y> restore squashfs
 <r> restore snapshot
 <R> restore snapshot (uses mv)
 <u> restore snapshot (uses rysnc)
-<b> boot root system
-<n> create @root snapshot from /
-<d> delete root system
-<z> create squashfs
-<x> run squashfs
-<y> restore squashfs
-<c> boot custom dir
-<e> enter bash
-<f> fsck
-<q> quit
 
+---Create Option---
+<n> create @current-root snapshot from /
+<z> create squashfs
+
+---Delete Option---
+<d> delete root system
+
+---Other Option---
 <w> add ro -> rw flag
 <o> add overlay flag
 <t> add tmpfs flag
 <m> add custom mount opts (Not working)
 
-<ENTER> bboot @root\n\n"
+-*-END-LIST-OPTIONS-*-
+<e> enter bash
+<f> fsck
+<q> quit
+
+<ENTER> bboot @current-root\n\n"
 
 			read -sn 1 key
 
