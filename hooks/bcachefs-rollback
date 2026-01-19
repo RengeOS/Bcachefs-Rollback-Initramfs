@@ -9,7 +9,7 @@
 
 
 snapshot_dir=/.snapshots
-root="$snapshots_dir/@current-root"
+root="$snapshot_dir/@current-root"
 mountOpts='noatime,fix_errors'
 new_root=/new_root
 user=user
