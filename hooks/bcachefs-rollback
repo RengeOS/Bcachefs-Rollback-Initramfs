@@ -125,28 +125,34 @@ run_latehook() {
 		if [ $showMenu = 'true' ]; then
 			
 			echo -e "\n\nWhat would you like to do?
+
 -*-START-LIST-OPTIONS-*-
 
----Boot Option---
+---Boot Options---
 <b> boot root system (/)
 <s> boot into a snapshot (/.snapshots/name-snapshot-folder)
 <x> boot into squashfs (name-squashfs-file.sfsquash)
 <c> boot custom dir
 
----Restore Option---
+---Restore Options---
 <y> restore squashfs
-<r> restore snapshot
-<R> restore snapshot (uses mv)
-<u> restore snapshot (uses rysnc)
+<r> restore snapshot to @current-root (backup old)
+<R> restore snapshot to @current-root (using mv)
+<u> restore snapshot using rsync
 
----Create Option---
+---Create Options---
+<C> create a new snapshot
 <n> create @current-root snapshot from /
 <z> create squashfs
 
----Delete Option---
-<d> delete root system
+---Delete Options---
+<D> delete a snapshot
+<d> delete root system (Make sure you already have @current-root)
 
----Other Option---
+---Edit Options---
+<E> rename a snapshot
+
+---Other Options---
 <w> add ro -> rw flag
 <o> add overlay flag
 <t> add tmpfs flag
@@ -246,6 +252,28 @@ run_latehook() {
 
 			finished=true
 
+		elif [[ "$key" = 'D' ]]; then
+			echo -e "\nAvailable snapshots:"
+			ls -d "$mnt$snapshot_dir"/*/ 2>/dev/null | sed "s|$mnt$snapshot_dir/||g" | sed 's|/||g' | grep -v "@current-root"
+			echo -e "\nEnter the name of the snapshot to delete:"
+			read snapshot_name
+			if [ -z "$snapshot_name" ]; then
+				error "Snapshot name cannot be empty."
+			else
+				snapshot_path="$snapshot_dir/$snapshot_name"
+				if [ -d "$mnt$snapshot_path" ] && [ "$snapshot_name" != "@current-root" ]; then
+					echo "Delete snapshot $snapshot_path? (y/n)"
+					read confirm
+					if [[ $confirm = 'y' ]]; then
+						bcachefs subvolume delete "$mnt$snapshot_path"
+						echo "Snapshot deleted."
+					else
+						echo "Cancelled."
+					fi
+				else
+					error "Invalid snapshot name or cannot delete @current-root."
+				fi
+			fi
 		elif [[ "$key" = 'y' ]]; then
 			
 			ls ${mnt} "$mnt$snapshot_dir"
@@ -272,6 +300,53 @@ run_latehook() {
 			umount "$new_root"
 			
 			echo "All done"
+
+		elif [[ "$key" = 'C' ]]; then
+			echo -e "\nEnter a name for the new snapshot:"
+			read snapshot_name
+			if [ -z "$snapshot_name" ]; then
+				error "Snapshot name cannot be empty."
+			else
+				snapshot_target="$snapshot_dir/@root-$snapshot_name"
+				if [ -d "$mnt$snapshot_target" ]; then
+					error "Snapshot $snapshot_target already exists."
+				else
+					echo "Create snapshot from $root to $snapshot_target? (y/n)"
+					read confirm
+					if [[ $confirm = 'y' ]]; then
+						bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_target"
+						echo "Snapshot created."
+					else
+						echo "Cancelled."
+					fi
+				fi
+			fi
+
+		elif [[ "$key" = 'E' ]]; then
+			echo -e "\nAvailable snapshots:"
+			ls -d "$mnt$snapshot_dir"/*/ 2>/dev/null | sed "s|$mnt$snapshot_dir/||g" | sed 's|/||g' | grep -v "@current-root"
+			echo -e "\nEnter the current name of the snapshot:"
+			read old_name
+			echo "Enter the new name for the snapshot:"
+			read new_name
+			if [ -z "$old_name" ] || [ -z "$new_name" ]; then
+				error "Names cannot be empty."
+			else
+				old_path="$snapshot_dir/$old_name"
+				new_path="$snapshot_dir/$new_name"
+				if [ -d "$mnt$old_path" ] && [ ! -d "$mnt$new_path" ] && [ "$old_name" != "@current-root" ]; then
+					echo "Rename $old_path to $new_path? (y/n)"
+					read confirm
+					if [[ $confirm = 'y' ]]; then
+						mv "$mnt$old_path" "$mnt$new_path"
+						echo "Snapshot renamed."
+					else
+						echo "Cancelled."
+					fi
+				else
+					error "Invalid old name or new name already exists, or trying to rename @current-root."
+				fi
+			fi
 
 		elif [[ "$key" = 'o' ]]; then
 	
