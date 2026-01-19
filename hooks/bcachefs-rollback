@@ -307,7 +307,7 @@ run_latehook() {
 			if [ -z "$snapshot_name" ]; then
 				error "Snapshot name cannot be empty."
 			else
-				snapshot_target="$snapshot_dir/@root-created-$snapshot_name"
+				snapshot_target="$snapshot_dir/@created-root-$snapshot_name"
 				if [ -d "$mnt$snapshot_target" ]; then
 					error "Snapshot $snapshot_target already exists."
 				else
@@ -461,12 +461,12 @@ run_latehook() {
 	
 			if [ -d "$mnt$snapshot_dir/$snapshot" ]; then
 			
-				if [ -d "$mnt$snapshot_dir$root-old" ]; then
-					bcachefs subvolume delete "$mnt$snapshot_dir$root-old"
+				if [ -d "$mnt$snapshot_dir/@previous-root" ]; then
+					bcachefs subvolume delete "$mnt$snapshot_dir/@previous-root"
 				fi
 
 				if [ -d "$mnt$root" ]; then
-					bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_dir$root-old"
+					bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_dir/@previous-root"
 					bcachefs subvolume delete $mnt$root
 				fi
 
