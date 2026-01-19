@@ -502,7 +502,7 @@ run_latehook() {
 				cp -rf $mnt$root/home /mnt/home 
 				cp -rf $mnt$root/lib /mnt/lib 
 				cp -rf $mnt$root/lib64 /mnt/lib64 
-				cp -rf $mnt$root'lost+found' /mnt/'lost+found'
+				cp -rf $mnt$root/'lost+found' /mnt/'lost+found'
 				cp -rf $mnt$root/opt /mnt/opt 
 				cp -rf $mnt$root/proc /mnt/proc 
 				cp -rf $mnt$root/root /mnt/root 
