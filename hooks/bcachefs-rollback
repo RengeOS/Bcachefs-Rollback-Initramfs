@@ -490,7 +490,7 @@ run_latehook() {
 	
 			# Make sure there is a system at @root before proceeding
 			# You must keep .snapshots and @root in / or the system won't start
-			if [ ! -d $mnt$root/etc ]; then
+			if [ ! -d $mnt/etc ]; then
 
 				echo "Restoring / (excepting .snapshots and $root)..."
 			
