@@ -135,10 +135,11 @@ run_latehook() {
 <c> boot custom dir
 
 ---Restore Options---
-<y> restore squashfs
+<p> restore root system from @current-root (using mv)
 <r> restore snapshot to @current-root (backup old)
 <R> restore snapshot to @current-root (using mv)
 <u> restore snapshot using rsync
+<y> restore squashfs
 
 ---Create Options---
 <C> create a new snapshot
@@ -485,6 +486,40 @@ run_latehook() {
 			echo "Entering bash..."
 			bash
 	
+		elif [[ "$key" = 'p' ]]; then
+	
+			# Make sure there is a system at @root before proceeding
+			# You must keep .snapshots and @root in / or the system won't start
+			if [ ! -d $mnt$root/etc ]; then
+
+				echo "Restoring / (excepting .snapshots and $root)..."
+			
+				cp -rf $mnt$root/bin /mnt/bin
+				cp -rf $mnt$root/boot /mnt/boot
+				cp -rf $mnt$root/dev /mnt/dev
+				cp -rf $mnt$root/efi /mnt/efi 
+				cp -rf $mnt$root/etc /mnt/etc 
+				cp -rf $mnt$root/home /mnt/home 
+				cp -rf $mnt$root/lib /mnt/lib 
+				cp -rf $mnt$root/lib64 /mnt/lib64 
+				cp -rf $mnt$root'lost+found' /mnt/'lost+found'
+				cp -rf $mnt$root/opt /mnt/opt 
+				cp -rf $mnt$root/proc /mnt/proc 
+				cp -rf $mnt$root/root /mnt/root 
+				cp -rf $mnt$root/run /mnt/run 
+				cp -rf $mnt$root/sbin /mnt/sbin 
+				cp -rf $mnt$root/srv /mnt/srv 
+				cp -rf $mnt$root/sys /mnt/sys 
+				cp -rf $mnt$root/tmp /mnt/tmp 
+				cp -rf $mnt$root/usr /mnt/usr 
+				cp -rf $mnt$root/var /mnt/var
+			
+			else
+			
+				error "Already have root system at /. Will not restore main system from @current-root."
+		
+			fi
+
 		elif [[ "$key" = 'd' ]]; then
 	
 			# Make sure there is a system at @root before proceeding
