@@ -1,440 +1,1069 @@
-#!/usr/bin/ash
+#!/bin/ash
+# bcachefs-rollback - Complete initramfs snapshot manager for bcachefs
+# Combines original functionality with Timeshift-style features
 
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 
-# $root (or /@root) will be where all the system files are stored once you've made
-# a snapshot to /@root (via the 'create @root snapshot from /' option.)
-# At that point you'll be able to delete all the files in your original / directory
-# (with the exception of .snapshots and @root) by issuing the 'delete root system'
-# option in the menu.
-
-
-snapshot_dir=/.snapshots
-root="$snapshots_dir/@root"
+snapshot_dir='/.snapshots'
+root_subvol='/@root'
 mountOpts='noatime,fix_errors'
-new_root=/new_root
-user=user
-mnt=/mnt
-temp="$mnt/temp"			# Used for changing from ro to rw
+new_root='/new_root'
+user='user'
+mnt='/mnt'
+temp="$mnt/temp"
+config_file="/.snapshots/.bcachefs-rollback.conf"
+default_boot_file="/.snapshots/.default_boot"
+
+# Partition numbers (leave blank to not mount)
+efiPartNum='1'
+bootPartNum='2'
+
+# Squashfs settings
 squashPath='/'
 squashFile='root.squashfs'
-efiPartNum='1'			# What partition is efi on? (leave blank to not mount)
-bootPartNum='2'		# What partition is boot on? (leave blank to not mount)
 
-# Useful file: /usr/lib/initcpio/init
-
+# Boot flags
 overlayFlag=false
 tmpfsFlag=false
-squashfsFlag=false
 rorwFlag=false
+squashfsFlag=false
 
+# Snapshot types
+SNAPSHOT_BOOT='boot'
+SNAPSHOT_HOURLY='hourly'
+SNAPSHOT_DAILY='daily'
+SNAPSHOT_WEEKLY='weekly'
+SNAPSHOT_MONTHLY='monthly'
+SNAPSHOT_MANUAL='manual'
+
+# Default retention policy
+KEEP_BOOT=5
+KEEP_HOURLY=5
+KEEP_DAILY=7
+KEEP_WEEKLY=4
+KEEP_MONTHLY=3
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+print_header() {
+	clear
+	echo -e "\n╔════════════════════════════════════════════════════════════════╗"
+	echo -e "║    BCACHEFS SNAPSHOT & ROLLBACK MANAGER v3.0                  ║"
+	echo -e "╚════════════════════════════════════════════════════════════════╝\n"
+}
+
+print_success() {
+	echo -e "✓ $1"
+}
+
+print_error() {
+	echo -e "\n✗ ERROR: $1\n"
+}
+
+print_info() {
+	echo -e "→ $1"
+}
+
+print_warning() {
+	echo -e "⚠ WARNING: $1"
+}
+
+# Get snapshot type from name
+parse_snapshot_type() {
+	local name="$1"
+	# Format: YYYY-MM-DD_HH-MM-SS_TYPE or old format
+	echo "$name" | grep -o '_[a-z]*$' | sed 's/^_//' || echo "manual"
+}
+
+get_snapshot_date() {
+	local name="$1"
+	echo "$name" | cut -d'_' -f1,2 | tr '_' ' ' | head -c 19
+}
+
+# Load configuration
+load_config() {
+	if [ -f "$mnt$config_file" ]; then
+		. "$mnt$config_file"
+	fi
+}
+
+# Save configuration
+save_config() {
+	mkdir -p "$mnt$snapshot_dir"
+	cat > "$mnt$config_file" << EOF
+# bcachefs-rollback configuration
+KEEP_BOOT=$KEEP_BOOT
+KEEP_HOURLY=$KEEP_HOURLY
+KEEP_DAILY=$KEEP_DAILY
+KEEP_WEEKLY=$KEEP_WEEKLY
+KEEP_MONTHLY=$KEEP_MONTHLY
+USER=$user
+EOF
+}
+
+# Load/save default boot path
+load_default_boot() {
+	if [ -f "$mnt$default_boot_file" ]; then
+		cat "$mnt$default_boot_file"
+	else
+		echo "$root_subvol"
+	fi
+}
+
+save_default_boot() {
+	local path="$1"
+	mkdir -p "$mnt$snapshot_dir"
+	echo "$path" > "$mnt$default_boot_file"
+	print_success "Default boot set to: $path"
+}
+
+list_snapshots() {
+	echo -e "\n┌─ Available Snapshots ─────────────────────────────────────────┐"
+	
+	if [ -d "$mnt$snapshot_dir" ]; then
+		local count=0
+		local default_boot=$(load_default_boot)
+		
+		# Show @root first if exists
+		if [ -d "$mnt$root_subvol" ]; then
+			local size=$(du -sh "$mnt$root_subvol" 2>/dev/null | cut -f1 || echo "?")
+			local marker=""
+			[ "$root_subvol" = "$default_boot" ] && marker=" [DEFAULT]"
+			printf "│  %-50s %10s%s │\n" "@root" "$size" "$marker"
+			count=$((count + 1))
+		fi
+		
+		# Group by type
+		for type in boot hourly daily weekly monthly manual; do
+			local type_count=0
+			local first=true
+			
+			for snap in "$mnt$snapshot_dir"/*; do
+				if [ -d "$snap" ]; then
+					local name=$(basename "$snap")
+					
+					# Skip @root and backup entries
+					[ "$name" = "@root" ] && continue
+					[[ "$name" == @root-* ]] && continue
+					
+					local snap_type=$(parse_snapshot_type "$name")
+					
+					if [ "$snap_type" = "$type" ]; then
+						if $first; then
+							[ $count -gt 0 ] && echo "│"
+							echo "│  ${type^^}:"
+							first=false
+						fi
+						
+						local size=$(du -sh "$snap" 2>/dev/null | cut -f1 || echo "?")
+						local date=$(get_snapshot_date "$name")
+						local marker=""
+						[ "$snapshot_dir/$name" = "$default_boot" ] && marker=" [DEFAULT]"
+						printf "│    %-47s %10s%s │\n" "$name" "$size" "$marker"
+						count=$((count + 1))
+						type_count=$((type_count + 1))
+					fi
+				fi
+			done
+		done
+		
+		if [ $count -eq 0 ]; then
+			echo "│  (No snapshots found)                                        │"
+		else
+			echo "│"
+			echo "│  Total: $count snapshot(s)"
+		fi
+	else
+		echo "│  (Snapshot directory not found)                              │"
+	fi
+	
+	echo "└───────────────────────────────────────────────────────────────┘"
+}
+
+show_flags() {
+	echo -e "\n┌─ Current Settings ────────────────────────────────────────────┐"
+	echo "│  Boot Flags:"
+	echo "│    Overlay mode:      [$overlayFlag]"
+	echo "│    Tmpfs mode:        [$tmpfsFlag]"
+	echo "│    RO→RW snapshot:    [$rorwFlag]"
+	echo "│"
+	echo "│  Default Boot Path:   $(load_default_boot)"
+	echo "│"
+	echo "│  Retention Policy:"
+	echo "│    Boot snapshots:    Keep last $KEEP_BOOT"
+	echo "│    Hourly snapshots:  Keep last $KEEP_HOURLY"
+	echo "│    Daily snapshots:   Keep last $KEEP_DAILY"
+	echo "│    Weekly snapshots:  Keep last $KEEP_WEEKLY"
+	echo "│    Monthly snapshots: Keep last $KEEP_MONTHLY"
+	echo "└───────────────────────────────────────────────────────────────┘"
+}
+
+show_snapshot_info() {
+	local snapshot="$1"
+	local path="$mnt$snapshot"
+	
+	if [ ! -d "$path" ]; then
+		print_error "Path not found: $snapshot"
+		return 1
+	fi
+	
+	echo -e "\n┌─ Snapshot Information ────────────────────────────────────────┐"
+	echo "│  Path:        $snapshot"
+	echo "│  Type:        $(parse_snapshot_type "$(basename "$snapshot")")"
+	
+	if [ -f "$path/.snapshot-info" ]; then
+		echo "│"
+		while IFS='=' read -r key value; do
+			case "$key" in
+				created) echo "│  Created:     $value" ;;
+				comment) echo "│  Comment:     $value" ;;
+				source) echo "│  Source:      $value" ;;
+			esac
+		done < "$path/.snapshot-info"
+	else
+		local stat_date=$(stat -c %y "$path" 2>/dev/null | cut -d'.' -f1)
+		echo "│  Created:     $stat_date"
+	fi
+	
+	echo "│  Size:        $(du -sh "$path" 2>/dev/null | cut -f1)"
+	
+	# Check if bootable
+	if [ -d "$path/etc" ]; then
+		echo "│  Bootable:    YES ✓"
+		if [ -f "$path/etc/os-release" ]; then
+			local os_name=$(grep "^PRETTY_NAME=" "$path/etc/os-release" | cut -d'"' -f2)
+			echo "│  OS:          $os_name"
+		fi
+	else
+		echo "│  Bootable:    NO ✗"
+	fi
+	
+	echo "└───────────────────────────────────────────────────────────────┘"
+}
+
+# =============================================================================
+# CORE BOOT FUNCTIONS (from original script)
+# =============================================================================
 
 boot() {
-
-	[ "$rorwFlag" = 'true' ] && create_rorw "$1"
-
-	# Check if the boot directory contains a bootable system (assume working system has /etc)
-	if [ -d "$mnt$1/etc" ]; then
-			
-		echo -e "Booting $1...\n"
-
-		if [ $tmpfsFlag = 'true' ]; then
-			echo create_tmpfs "$1"
-			create_tmpfs "$1"
-		else
-			mount --bind -o "$mountOpts" "$mnt$1" ${new_root}
-		fi
+	local boot_path="$1"
 	
-		[ $overlayFlag = 'true' ] && create_overlay
+	[ "$rorwFlag" = 'true' ] && create_rorw "$boot_path"
+
+	# Check if the boot directory contains a bootable system
+	if [ ! -d "$mnt$boot_path/etc" ]; then
+		print_error "No bootable system found at $boot_path"
+		showMenu=true
+		return 1
+	fi
 	
-		mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
-	
-		finished=true
-		
+	print_info "Booting from: $boot_path"
+
+	if [ "$tmpfsFlag" = 'true' ]; then
+		create_tmpfs "$boot_path"
 	else
-
-		error "No system found at $1."
-		showMenu=true		
+		mount --bind -o "$mountOpts" "$mnt$boot_path" ${new_root}
 	fi
 
+	[ "$overlayFlag" = 'true' ] && create_overlay
+
+	mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
+
+	print_success "Boot preparation complete"
+	finished=true
 }
 
 create_rorw() {
-
-	echo "Creating ro to rw snapshot..."
-
+	print_info "Creating read-only to read-write snapshot..."
+	
 	bcachefs subvolume snapshot "$mnt$1" "$temp"
 	bcachefs subvolume delete "$mnt$1"
 	bcachefs subvolume snapshot "$temp" "$mnt$1"
 	bcachefs subvolume delete "$temp"
-
+	
+	print_success "RO→RW snapshot created"
 }
 
 create_overlay() {
+	print_info "Setting up overlay filesystem (changes won't persist)..."
 
-   echo -e "Booting in overlay mode...\n"
-
-   local lower_dir=$(mktemp -d -p /)
-   local ram_dir=$(mktemp -d -p /)
-   mount --move ${new_root} ${lower_dir}
-   mount -t tmpfs cowspace ${ram_dir}
-   mkdir -p ${ram_dir}/upper ${ram_dir}/work
-   mount -t overlay -o lowerdir=${lower_dir},upperdir=${ram_dir}/upper,workdir=${ram_dir}/work rootfs ${new_root}
-
+	local lower_dir=$(mktemp -d -p /)
+	local ram_dir=$(mktemp -d -p /)
+	
+	mount --move ${new_root} ${lower_dir}
+	mount -t tmpfs cowspace ${ram_dir}
+	mkdir -p ${ram_dir}/upper ${ram_dir}/work
+	mount -t overlay -o lowerdir=${lower_dir},upperdir=${ram_dir}/upper,workdir=${ram_dir}/work rootfs ${new_root}
+	
+	print_success "Overlay mode enabled"
 }
 
 create_tmpfs() {
-
 	mount -t tmpfs -o size=80% none $new_root
 
-	echo -e "\nCopying root filesystem to RAM. Please be patient...\n"
+	print_info "Copying root filesystem to RAM (please be patient)..."
 
-	rsync --info=progress2 -axHAXSW --exclude=/efi/ --exclude=/boot/ --exclude=/home/user/.cache/ --exclude=setup.tar.gz --exclude /home/user/.local/share/Trash/ --exclude=/dev/ --exclude=/var/cache/pacman/ --exclude=/run/timeshift/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/mnt/ --exclude=$snapshot_dir/* --exclude=/var/tmp/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/* "$mnt$1/" ${new_root}
-
+	rsync --info=progress2 -axHAXSW \
+		--exclude=/efi/ --exclude=/boot/ --exclude=/home/$user/.cache/ \
+		--exclude=/home/$user/.local/share/Trash/ --exclude=/dev/ \
+		--exclude=/var/cache/pacman/ --exclude=/run/timeshift/ \
+		--exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ \
+		--exclude=/mnt/ --exclude=$snapshot_dir/* --exclude=/var/tmp/ \
+		--exclude=/var/log/ --exclude=/var/lib/systemd/random-seed \
+		--exclude=/root/.cache/* --exclude=setup.tar.gz \
+		"$mnt$1/" ${new_root}
+	
+	print_success "System loaded to RAM"
 }
 
-error() {
+# =============================================================================
+# SNAPSHOT MANAGEMENT
+# =============================================================================
 
-	echo -e "\n<<< $1 >>>\n"
-
+create_snapshot_simple() {
+	local source="$1"
+	local target="$2"
+	
+	if [ ! -d "$mnt$source/etc" ]; then
+		print_error "No valid system found at $source"
+		return 1
+	fi
+	
+	if [ -d "$mnt$target" ]; then
+		print_error "Target already exists: $target"
+		return 1
+	fi
+	
+	print_info "Creating snapshot: $source → $target"
+	
+	mkdir -p "$mnt$snapshot_dir"
+	
+	if bcachefs subvolume snapshot "$mnt$source" "$mnt$target"; then
+		print_success "Snapshot created: $target"
+		return 0
+	else
+		print_error "Failed to create snapshot"
+		return 1
+	fi
 }
+
+create_snapshot_typed() {
+	local source="$1"
+	local type="$2"
+	local comment="$3"
+	
+	# Generate timestamp-based name
+	local timestamp=$(date +%Y-%m-%d_%H-%M-%S)
+	local name="${timestamp}_${type}"
+	local target="$snapshot_dir/$name"
+	
+	if [ ! -d "$mnt$source/etc" ]; then
+		print_error "No valid system found at $source"
+		return 1
+	fi
+	
+	print_info "Creating $type snapshot: $name"
+	
+	mkdir -p "$mnt$snapshot_dir"
+	
+	if bcachefs subvolume snapshot "$mnt$source" "$mnt$target"; then
+		# Save metadata
+		cat > "$mnt$target/.snapshot-info" << EOF
+type=$type
+source=$source
+comment=$comment
+created=$(date)
+EOF
+		
+		print_success "Snapshot created successfully"
+		
+		# Auto-cleanup old snapshots of this type
+		cleanup_snapshots "$type"
+		return 0
+	else
+		print_error "Failed to create snapshot"
+		return 1
+	fi
+}
+
+cleanup_snapshots() {
+	local type="$1"
+	local keep_count=5
+	
+	# Determine retention based on type
+	case "$type" in
+		boot) keep_count=$KEEP_BOOT ;;
+		hourly) keep_count=$KEEP_HOURLY ;;
+		daily) keep_count=$KEEP_DAILY ;;
+		weekly) keep_count=$KEEP_WEEKLY ;;
+		monthly) keep_count=$KEEP_MONTHLY ;;
+		*) return ;;
+	esac
+	
+	# Collect snapshots of this type
+	local snapshots=()
+	for snap in "$mnt$snapshot_dir"/*_${type}; do
+		if [ -d "$snap" ]; then
+			snapshots+=("$(basename "$snap")")
+		fi
+	done
+	
+	# Sort by name (reverse - newest first)
+	local count=0
+	for snap in $(printf '%s\n' "${snapshots[@]}" | sort -r); do
+		count=$((count + 1))
+		if [ $count -gt $keep_count ]; then
+			print_info "Deleting old $type snapshot: $snap"
+			bcachefs subvolume delete "$mnt$snapshot_dir/$snap" 2>/dev/null
+		fi
+	done
+}
+
+restore_snapshot_bcachefs() {
+	local snapshot="$1"
+	local target="$2"
+	
+	local source="$mnt$snapshot"
+	
+	if [ ! -d "$source" ]; then
+		print_error "Snapshot not found: $snapshot"
+		return 1
+	fi
+	
+	print_info "Restoring: $snapshot → $target"
+	
+	# Backup existing target if it exists
+	if [ -d "$mnt$target" ]; then
+		local backup="$snapshot_dir/@root-backup-$(date +%Y%m%d-%H%M%S)"
+		print_info "Backing up current $target to $backup"
+		bcachefs subvolume snapshot "$mnt$target" "$mnt$backup"
+		bcachefs subvolume delete "$mnt$target"
+		sleep 1
+		sync
+		sleep 1
+	fi
+	
+	# Restore snapshot
+	if bcachefs subvolume snapshot "$source" "$mnt$target"; then
+		print_success "Snapshot restored successfully to $target"
+		return 0
+	else
+		print_error "Failed to restore snapshot"
+		return 1
+	fi
+}
+
+restore_snapshot_mv() {
+	local snapshot="$1"
+	local target="$2"
+	
+	local source="$mnt$snapshot_dir/$snapshot"
+	
+	if [ ! -d "$source" ]; then
+		print_error "Snapshot not found: $snapshot"
+		return 1
+	fi
+	
+	print_info "Moving: $snapshot → $target"
+	
+	# Delete existing target if it exists
+	if [ -d "$mnt$target" ]; then
+		bcachefs subvolume delete "$mnt$target"
+		sleep 1
+		sync
+		sleep 1
+	fi
+	
+	# Move snapshot
+	if mv "$source" "$mnt$target"; then
+		print_success "Snapshot moved to $target"
+		return 0
+	else
+		print_error "Failed to move snapshot"
+		return 1
+	fi
+}
+
+restore_snapshot_rsync() {
+	local source="$1"
+	local target="$2"
+	
+	mkdir -p "$mnt$target"
+
+	local rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ \
+		--exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ \
+		--exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ \
+		--exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ \
+		--exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ \
+		--exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ \
+		--exclude=$snapshot_dir/"
+
+	print_info "Dry run preview (press 'q' to exit):"
+	rsync --dry-run -v $rsync_params "$mnt$source/" "$mnt$target/" | less
+
+	echo -e "\n"
+	read -p "Type 'y' to proceed with rsync or any other key to cancel: " choice
+
+	if [ "$choice" = 'y' ] || [ "$choice" = 'Y' ]; then
+		print_info "Syncing $source → $target..."
+		rsync --info=progress2 $rsync_params "$mnt$source/" "$mnt$target/"
+		print_success "Sync completed"
+		return 0
+	else
+		print_info "Sync cancelled"
+		return 1
+	fi
+}
+
+delete_snapshot() {
+	local snapshot="$1"
+	local path="$mnt$snapshot"
+	
+	if [ ! -d "$path" ]; then
+		print_error "Snapshot not found: $snapshot"
+		return 1
+	fi
+	
+	print_warning "Delete: $snapshot"
+	read -p "Are you sure? [y/N]: " confirm
+	
+	if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+		print_info "Deleting snapshot..."
+		if bcachefs subvolume delete "$path"; then
+			print_success "Snapshot deleted"
+			return 0
+		else
+			print_error "Failed to delete snapshot"
+			return 1
+		fi
+	else
+		print_info "Deletion cancelled"
+		return 1
+	fi
+}
+
+rename_snapshot() {
+	local old_name="$1"
+	local new_name="$2"
+	
+	local old_path="$mnt$snapshot_dir/$old_name"
+	local new_path="$mnt$snapshot_dir/$new_name"
+	
+	if [ ! -d "$old_path" ]; then
+		print_error "Snapshot not found: $old_name"
+		return 1
+	fi
+	
+	if [ -d "$new_path" ]; then
+		print_error "Target name already exists: $new_name"
+		return 1
+	fi
+	
+	print_info "Renaming: $old_name → $new_name"
+	
+	if mv "$old_path" "$new_path"; then
+		print_success "Snapshot renamed"
+		return 0
+	else
+		print_error "Failed to rename snapshot"
+		return 1
+	fi
+}
+
+# =============================================================================
+# SQUASHFS FUNCTIONS (from original script)
+# =============================================================================
+
+create_squashfs() {
+	local source="$1"
+	
+	[ -n "$efiPartNum" ] && mount --mkdir $disk$efiPartNum $mnt/efi
+	[ -n "$bootPartNum" ] && mount --mkdir $disk$bootPartNum $mnt/boot
+	
+	print_info "Creating squashfs from $source..."
+	cd "$mnt$source"
+	
+	mksquashfs . "$mnt$squashPath$squashFile" -noappend -no-recovery \
+		-mem-percent 20 -comp lz4 -e root.squashfs -e "$squashFile" \
+		-e home/$user/.cache/ -e home/$user/.local/share/Trash/ \
+		-e mnt/ -e var/cache/pacman/ -e .snapshots/*
+	
+	[ -n "$efiPartNum" ] && umount $mnt/efi
+	[ -n "$bootPartNum" ] && umount $mnt/boot
+	
+	sleep 1
+	ls -lah "$mnt$squashPath$squashFile"
+	print_success "Squashfs created"
+}
+
+boot_squashfs() {
+	if [ "$tmpfsFlag" = 'true' ]; then
+		print_info "Extracting squashfs to RAM..."
+		mount -t tmpfs -o size=80% none $new_root
+		unsquashfs -d $new_root -f "$mnt$squashPath$squashFile"
+	elif [ "$overlayFlag" = 'true' ]; then
+		mount -t squashfs -o loop --source "$mnt$squashPath$squashFile" --target "$new_root/"
+		create_overlay
+	else
+		mount -t squashfs -o loop --source "$mnt$squashPath$squashFile" --target "$new_root/"
+	fi
+
+	mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
+	
+	print_success "Squashfs mounted"
+	finished=true
+}
+
+restore_squashfs() {
+	local restorePath="$1"
+	
+	mount -t squashfs -o loop --source "$mnt$squashPath$squashFile" --target "$new_root"
+
+	if [ "$mnt$restorePath" = "$mnt$root_subvol" ] && [ -d "$mnt$restorePath" ]; then
+		print_info "Deleting existing subvolume at $restorePath..."
+		bcachefs subvolume delete "$mnt$restorePath"
+		rm -rf "$mnt$restorePath"
+	fi
+	
+	mkdir -p "$mnt$restorePath"
+	print_info "Copying squashfs to $restorePath (please be patient)..."
+	
+	cd "$new_root"
+	cp -a . "$mnt$restorePath/"
+
+	cd /
+	umount "$new_root"
+	
+	print_success "Squashfs restored to $restorePath"
+}
+
+# =============================================================================
+# BROWSE & SELECT SNAPSHOTS
+# =============================================================================
+
+browse_snapshots() {
+	local action="$1"
+	local snapshots=()
+	local paths=()
+	
+	# Collect all snapshots
+	if [ -d "$mnt$root_subvol" ]; then
+		snapshots+=("@root")
+		paths+=("$root_subvol")
+	fi
+	
+	for snap in "$mnt$snapshot_dir"/*; do
+		if [ -d "$snap" ]; then
+			local name=$(basename "$snap")
+			# Skip @root in snapshot_dir and backup entries
+			[ "$name" = "@root" ] && continue
+			[[ "$name" == @root-backup-* ]] && continue
+			
+			snapshots+=("$name")
+			paths+=("$snapshot_dir/$name")
+		fi
+	done
+	
+	if [ ${#snapshots[@]} -eq 0 ]; then
+		print_error "No snapshots available"
+		read -p "Press ENTER to continue..."
+		return 1
+	fi
+	
+	# Display menu
+	print_header
+	echo -e "Select a snapshot to $action:\n"
+	
+	local index=1
+	for i in "${!snapshots[@]}"; do
+		local snap="${snapshots[$i]}"
+		local type=$(parse_snapshot_type "$snap")
+		local size=$(du -sh "$mnt${paths[$i]}" 2>/dev/null | cut -f1 || echo "?")
+		printf "  [%2d] %-45s %-10s (%s)\n" $index "$snap" "$size" "$type"
+		index=$((index + 1))
+	done
+	
+	echo -e "\n  [0] Cancel\n"
+	read -p "Enter number: " choice
+	
+	if [ "$choice" = "0" ] || [ -z "$choice" ]; then
+		return 1
+	fi
+	
+	if [ "$choice" -ge 1 ] && [ "$choice" -le ${#snapshots[@]} ]; then
+		local idx=$((choice - 1))
+		selected_name="${snapshots[$idx]}"
+		selected_path="${paths[$idx]}"
+		return 0
+	else
+		print_error "Invalid selection"
+		sleep 1
+		return 1
+	fi
+}
+
+# =============================================================================
+# INTERACTIVE MENU
+# =============================================================================
+
+show_menu() {
+	print_header
+	show_flags
+	list_snapshots
+	
+	echo -e "\n╔════════════════════════════════════════════════════════════════╗"
+	echo "║  QUICK BOOT                                                    ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  <ENTER>  Boot default ($(load_default_boot))                  "
+	echo "║  <b>      Boot main system (/)                                 ║"
+	echo "║  <s>      Browse & boot snapshot                               ║"
+	echo "║  <D>      Set default boot path                                ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  SNAPSHOT MANAGEMENT (Simple)                                  ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  <n>      Create @root from / (simple snapshot)                ║"
+	echo "║  <r>      Restore snapshot (browse & select)                   ║"
+	echo "║  <R>      Restore snapshot (move method)                       ║"
+	echo "║  <u>      Restore snapshot (rsync method)                      ║"
+	echo "║  <x>      Delete snapshot (browse & select)                    ║"
+	echo "║  <X>      Rename snapshot                                      ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  SNAPSHOT MANAGEMENT (Timeshift-style)                         ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  <1>      Create manual snapshot                               ║"
+	echo "║  <2>      Create boot snapshot (auto-cleanup)                  ║"
+	echo "║  <3>      Create daily snapshot                                ║"
+	echo "║  <4>      View snapshot details                                ║"
+	echo "║  <5>      Delete all snapshots (keep @root)                    ║"
+	echo "║  <C>      Configure retention policy                           ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  SQUASHFS                                                      ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  <z>      Create squashfs archive                              ║"
+	echo "║  <Z>      Boot from squashfs                                   ║"
+	echo "║  <y>      Restore from squashfs                                ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  BOOT FLAGS (toggle)                                           ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  <w>      RO→RW snapshot [$rorwFlag]                           ║"
+	echo "║  <o>      Overlay mode [$overlayFlag]                          ║"
+	echo "║  <t>      Tmpfs/RAM mode [$tmpfsFlag]                          ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  UTILITIES                                                     ║"
+	echo "╠════════════════════════════════════════════════════════════════╣"
+	echo "║  <d>      Delete / (keep @root & .snapshots)                   ║"
+	echo "║  <c>      Boot from custom path                                ║"
+	echo "║  <f>      Filesystem check (fsck)                              ║"
+	echo "║  <e>      Enter bash shell                                     ║"
+	echo "║  <q>      Continue boot                                        ║"
+	echo "╚════════════════════════════════════════════════════════════════╝"
+	
+	echo -e -n "\nChoice: "
+}
+
+configure_retention() {
+	print_header
+	echo -e "Configure Snapshot Retention Policy:\n"
+	
+	read -p "Boot snapshots to keep [$KEEP_BOOT]: " input
+	[ -n "$input" ] && KEEP_BOOT=$input
+	
+	read -p "Hourly snapshots to keep [$KEEP_HOURLY]: " input
+	[ -n "$input" ] && KEEP_HOURLY=$input
+	
+	read -p "Daily snapshots to keep [$KEEP_DAILY]: " input
+	[ -n "$input" ] && KEEP_DAILY=$input
+	
+	read -p "Weekly snapshots to keep [$KEEP_WEEKLY]: " input
+	[ -n "$input" ] && KEEP_WEEKLY=$input
+	
+	read -p "Monthly snapshots to keep [$KEEP_MONTHLY]: " input
+	[ -n "$input" ] && KEEP_MONTHLY=$input
+	
+	save_config
+	print_success "Retention policy saved"
+	sleep 2
+}
+
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
 
 run_latehook() {
-
-	# Automatically find the proper root partition which was booted
+	# Find root partition
 	root_part=$(mount | grep ${new_root} | sed "s# on ${new_root}.*##")
 	disk=$(mount | grep ${new_root} | sed "s#[0-9] on ${new_root}.*##")
 
-	# System pre-mounted, but we want to mount the systems differently
 	umount ${new_root}
-
 	mkdir -p $mnt
 
+	print_info "Mounting bcachefs partition..."
+	bcachefs mount -o "$mountOpts" ${root_part} ${mnt}
 	
+	# Load configuration
+	load_config
+
 	finished=false
 	showMenu=false
-
-	echo bcachefs mount -o "$mountOpts" ${root_part} ${mnt}
-	bcachefs mount -o "$mountOpts" ${root_part} ${mnt}
-
-
-	echo -e "\nPress any key for bcachefs rollback.\n"
-	[ $(read -sn1 -t 2 && echo 1) ] && showMenu=true
-
-	while [ ! "$finished" = 'true' ]; do
-
-		if [ $showMenu = 'true' ]; then
-			
-			echo -e "\n\nWhat would you like to do?
-
-<s> boot into a snapshot
-<r> restore snapshot
-<R> restore snapshot (uses mv)
-<u> restore snapshot (uses rysnc)
-<b> boot root system
-<n> create @root snapshot from /
-<d> delete root system
-<z> create squashfs
-<x> run squashfs
-<y> restore squashfs
-<c> boot custom dir
-<e> enter bash
-<f> fsck
-<q> quit
-
-<w> add ro -> rw flag
-<o> add overlay flag
-<t> add tmpfs flag
-<m> add custom mount opts (Not working)
-
-<ENTER> bboot @root\n\n"
-
-			read -sn 1 key
-
-		fi
-
-
-		if [[ "$key" = 'u' ]]; then
-		
-			echo -e "\nEnter a source.
-(eg., '/', '/@root', '/.snapshots/first')\n"
-
-			read Source
 	
-			echo -e "\nEnter a target.
-(eg., '/', '/@root', '/.snapshots/first')\n"
+	# Check for default boot
+	default_boot=$(load_default_boot)
 
-			read Target
-
-			mkdir -p "$mnt$Target"
-
-			rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ --exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ --exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ --exclude=$mnt/ --exclude=$snapshot_dir/"
-
-
-			rsync --dry-run -v $rsync_params "$mnt$Source" "$mnt$Target" | less
-
-
-   		read -p "Type 'y' to proceed with rsync or any other key to exit..." choice
-
-   		if [[ $choice = 'y' ]]; then
-
-      		rsync --info=progress2 $rsync_params "$mnt$Source" "$mnt$Target"
-				
-				echo "Sync finished."
-   		
-			else
-      		echo "Exiting."
-   		fi
-
-		elif [[ "$key" = 'f' ]]; then
-			
-			echo 'To save logs run: bcachefs fsck -p > $mnt/log_file.txt 2>&1'
-			echo bcachefs fsck -p ${root_part}
-			bcachefs fsck -p ${root_part}
-			
-		elif [[ "$key" = 'z' ]]; then
-			
-			echo -e "\nEnter a source to create from.
-(eg., '/', '/@root', '/.snapshots/first')\n"
-
-			read squashSource
-
-			[ $efiPartNum ] && mount --mkdir $disk$efiPartNum $mnt/efi
-			[ $bootPartNum ] && mount --mkdir $disk$bootPartNum $mnt/boot
-			
-			cd $mnt$squashSource
-
-			mksquashfs . $mnt$squashPath$squashFile -noappend -no-recovery -mem-percent 20 -comp lz4 -e root.squashfs -e "$squashFile" -e home/$user/.cache/ -e home/$user/.local/share/Trash/ -e mnt/ -e var/cache/pacman/ -e .snapshots/*
-
-			[ $efiPartNum ] && umount $mnt/efi
-			[ $bootPartNum ] && umount $mnt/boot
-
-			sleep 1
-
-   		ls -lah $mnt$squashPath$squashFile
-		
-		elif [[ "$key" = 'x' ]]; then
-
-			if [ $tmpfsFlag = 'true' ]; then
-				
-				echo -e "\nExtracting archive to RAM. Please be patient...\n"
-				mount -t tmpfs -o size=80% none $new_root
-				unsquashfs -d $new_root -f $mnt$squashPath$squashFile
-			
-			elif [ $overlayFlag = 'true' ]; then
-
-				mount -t squashfs -o loop --source "$mnt$squashPath$squashFile" --target "$new_root/"
-				create_overlay
-			
-			else
-				
-				mount -t squashfs -o loop --source "$mnt$squashPath$squashFile" --target "$new_root/"
-
-			fi
+	echo -e "\n╔════════════════════════════════════════════════════════════════╗"
+	echo "║  Press ANY KEY within 3 seconds for snapshot/rollback menu    ║"
+	echo "║  Default boot: $default_boot                                   ║"
+	echo "╚════════════════════════════════════════════════════════════════╝"
 	
-			mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
+	[ $(read -sn1 -t 3 && echo 1) ] && showMenu=true
 
-			finished=true
+	# Main loop
+	while [ "$finished" != 'true' ]; do
 
-		elif [[ "$key" = 'y' ]]; then
-			
-			ls ${mnt} "$mnt$snapshot_dir"
+		[ "$showMenu" = 'true' ] && show_menu && read -sn 1 key
 
-			echo -e "\nType the path you'd like to restore.\n"
+		case "$key" in
+			'') # ENTER - Boot default
+				print_info "Booting default: $default_boot"
+				boot "$default_boot"
+				;;
 
-			read restorePath
-			
-			mount -t squashfs -o loop --source "$mnt$squashPath$squashFile" --target "$new_root"
-		
-			if [ "$mnt$restorePath" = "$root" ] && [ -d "$mnt$restorePath" ]; then
-				echo "Deleting subvolume in current path..."
-				bcachefs subvolume delete "$mnt$restorePath"
-				rm -rf "$mnt$restorePath"
-			fi
-			
-			mkdir -p "$mnt$restorePath"
-			echo -e "\nCopying:  cp -a . $mnt$restorePath/... Please be patient.\n"
-			
-			cd "$new_root"
-			cp -a . "$mnt$restorePath/"
+			'b') # Boot main system
+				print_info "Booting main system (/)..."
+				boot /
+				;;
 
-			cd /
-			umount "$new_root"
-			
-			echo "All done"
+			's') # Browse & boot snapshot
+				if browse_snapshots "boot"; then
+					boot "$selected_path"
+				fi
+				showMenu=true
+				;;
 
-		elif [[ "$key" = 'o' ]]; then
-	
-			[ $overlayFlag = 'true' ] && overlayFlag='false' || overlayFlag='true'
-			
-			echo "overlayFlag=$overlayFlag"
+			'D') # Set default boot path
+				if browse_snapshots "set as default"; then
+					save_default_boot "$selected_path"
+				fi
+				showMenu=true
+				;;
 
-		elif [[ "$key" = 'w' ]]; then
-			
-			[ $rorwFlag = 'true' ] && rorwFlag='false' || rorwFlag='true'
-			
-			echo "rorwFlag=$rorwFlag"
-
-		elif [[ "$key" = 't' ]]; then
-			
-			[ $tmpfsFlag = 'true' ] && tmpfsFlag='false' || tmpfsFlag='true'
-			
-			echo "tmpfsFlag=$tmpfsFlag"
-	
-		elif [[ "$key" = 'm' ]]; then
-		
-			echo "FEATURE NOT CURRENTLY WORKING! (likely due to /etc/fstab overriding?)"
-			
-			echo -e "\nType mount opts to add (will override current: $mountOpts):\n"
-
-			read mountOpts
-
-			echo -e "\nMounting options '$mountOpts' were added.\n"
-	
-		elif [[ "$key" = 'n' ]]; then
-	
-			if [ -d "$mnt/etc" ]; then
-
-				if [ ! -d "$mnt$root" ]; then
-
-					bcachefs subvolume snapshot "$mnt" "$mnt$root" && echo "$root snapshot created."	
+			'n') # Create @root snapshot
+				if [ -d "$mnt/etc" ]; then
+					if [ ! -d "$mnt$root_subvol" ]; then
+						create_snapshot_simple / "$root_subvol"
+					else
+						print_error "@root already exists"
+					fi
 				else
+					print_error "No system found at /"
+				fi
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'r') # Restore snapshot (bcachefs method)
+				if browse_snapshots "restore"; then
+					restore_snapshot_bcachefs "$selected_path" "$root_subvol"
+				fi
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'R') # Restore snapshot (move method)
+				if browse_snapshots "restore (move)"; then
+					if [[ "$selected_path" == "$snapshot_dir/"* ]]; then
+						restore_snapshot_mv "$selected_name" "$root_subvol"
+					else
+						print_error "Can only move snapshots from $snapshot_dir"
+					fi
+				fi
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'u') # Restore snapshot (rsync method)
+				echo -e "\nSource path (e.g., /.snapshots/snap1 or /): "
+				read source
+				echo "Target path (e.g., /@root): "
+				read target
+				restore_snapshot_rsync "$source" "$target"
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'x') # Delete snapshot
+				if browse_snapshots "delete"; then
+					delete_snapshot "$selected_path"
+				fi
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'X') # Rename snapshot
+				if browse_snapshots "rename"; then
+					if [[ "$selected_path" == "$snapshot_dir/"* ]]; then
+						echo -e "\nCurrent name: $selected_name"
+						read -p "New name: " new_name
+						if [ -n "$new_name" ]; then
+							rename_snapshot "$selected_name" "$new_name"
+						fi
+					else
+						print_error "Can only rename snapshots in $snapshot_dir"
+					fi
+				fi
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'1') # Manual snapshot
+				echo -e "\nCreating manual snapshot from /..."
+				read -p "Enter comment (optional): " comment
+				create_snapshot_typed / "$SNAPSHOT_MANUAL" "$comment"
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'2') # Boot snapshot
+				print_info "Creating boot snapshot from /..."
+				create_snapshot_typed / "$SNAPSHOT_BOOT" "Manual boot snapshot"
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'3') # Daily snapshot
+				print_info "Creating daily snapshot from /..."
+				create_snapshot_typed / "$SNAPSHOT_DAILY" "Manual daily snapshot"
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'4') # View snapshot details
+				if browse_snapshots "view details"; then
+					show_snapshot_info "$selected_path"
+				fi
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
+
+			'5') # Delete all snapshots
+				print_warning "This will delete ALL snapshots except @root and backups"
+				read -p "Continue? [y/N]: " confirm
 				
-					error "There is already a $root created."
-
+				if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+					for snap in "$mnt$snapshot_dir"/*; do
+						local name=$(basename "$snap")
+						if [ "$name" != "@root" ] && [[ "$name" != @root-backup-* ]] && [ -d "$snap" ]; then
+							print_info "Deleting $name..."
+							bcachefs subvolume delete "$snap"
+						fi
+					done
+					print_success "All snapshots deleted"
 				fi
-		
-			else
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
 
-				error "No system found at /."
-	
-			fi
-	
-		elif [[ "$key" = 'c' ]]; then
-			
-			echo -e "\nType the path you'd like to boot from.\n"
+			'C') # Configure retention
+				configure_retention
+				showMenu=true
+				;;
 
-			read bootPath
-		
-			boot "$bootPath"
+			'z') # Create squashfs
+				echo -e "\nSource path for squashfs (e.g., /@root or /): "
+				read squashSource
+				[ -z "$squashSource" ] && squashSource="/"
+				create_squashfs "$squashSource"
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
 
-		elif [[ "$key" = 's' ]]; then
-	
-			echo -e "\nType the name of the snapshot you would like to load.\n"
+			'Z') # Boot squashfs
+				boot_squashfs
+				;;
 
-			# TODO: create a way to easily select snapshots instead of having to enter them
-		
-			ls "$mnt$snapshot_dir"
+			'y') # Restore squashfs
+				echo -e "\nRestore target path (e.g., /@root): "
+				read restorePath
+				[ -z "$restorePath" ] && restorePath="$root_subvol"
+				restore_squashfs "$restorePath"
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
 
-			echo
+			'w') # Toggle RO→RW
+				[ "$rorwFlag" = 'true' ] && rorwFlag='false' || rorwFlag='true'
+				showMenu=true
+				;;
 
-			read snapshot
-		
-			boot "$snapshot_dir/$snapshot"
+			'o') # Toggle overlay
+				[ "$overlayFlag" = 'true' ] && overlayFlag='false' || overlayFlag='true'
+				showMenu=true
+				;;
 
-		elif [[ "$key" = 'b' ]]; then
+			't') # Toggle tmpfs
+				[ "$tmpfsFlag" = 'true' ] && tmpfsFlag='false' || tmpfsFlag='true'
+				showMenu=true
+				;;
 
-			boot /
-
-		elif [[ "$key" = 'R' ]]; then
-
-			echo -e "\nType the name of the snapshot you would like to recover to $root.\n"
-		
-			ls "$mnt$snapshot_dir"
-
-			echo
-
-			read snapshot
-	
-			if [ -d "$mnt$snapshot_dir/$snapshot" ]; then
-			
-				if [ -d "$mnt$root" ]; then
-					bcachefs subvolume delete $mnt$root
-					sleep 1
-					sync
-					sleep 1
-				fi
-
-				mv "$mnt$snapshot_dir/$snapshot/" $mnt$root/
-				echo -e "\n'$snapshot' recovered to $root.\n"
+			'd') # Delete main system
+				if [ -d "$mnt$root_subvol/etc" ]; then
+					print_warning "This will delete / (keeping .snapshots and @root)"
+					read -p "Continue? [y/N]: " confirm
 					
-			else
-			
-				error "The snapshot '$snapshot' does not exist."
-
-			fi
-
-		elif [[ "$key" = 'r' ]]; then
-
-			echo -e "\nType the name of the snapshot you would like to recover to $root.\n"
-		
-			ls "$mnt$snapshot_dir"
-
-			echo
-
-			read snapshot
-	
-			if [ -d "$mnt$snapshot_dir/$snapshot" ]; then
-			
-				if [ -d "$mnt$snapshot_dir$root-old" ]; then
-					bcachefs subvolume delete "$mnt$snapshot_dir$root-old"
+					if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+						print_info "Deleting main system..."
+						rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home \
+							/mnt/lib /mnt/lib64 /mnt/lost+found /mnt/opt /mnt/proc \
+							/mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp \
+							/mnt/usr /mnt/var
+						print_success "Main system deleted"
+					fi
+				else
+					print_error "No @root system found - refusing to delete"
 				fi
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
 
-				if [ -d "$mnt$root" ]; then
-					bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_dir$root-old"
-					bcachefs subvolume delete $mnt$root
+			'c') # Boot custom path
+				echo -e "\nEnter path to boot from (e.g., /@custom, /.snapshots/snap1): "
+				read bootPath
+				if [ -n "$bootPath" ]; then
+					boot "$bootPath"
 				fi
+				showMenu=true
+				;;
 
-				echo bcaches subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
-				bcachefs subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
-				echo -e "\n'$snapshot' recovered to $root.\n"
-					
-			else
-			
-				error "The snapshot '$snapshot' does not exist."
+			'f') # Filesystem check
+				print_info "Running bcachefs fsck..."
+				echo "To save logs: bcachefs fsck -p > $mnt/fsck.log 2>&1"
+				bcachefs fsck -p ${root_part}
+				read -p "Press ENTER to continue..."
+				showMenu=true
+				;;
 
-			fi
+			'e') # Bash shell
+				print_info "Entering bash shell (type 'exit' to return)..."
+				bash
+				showMenu=true
+				;;
 
-		elif [[ "$key" = 'e' ]]; then
+			'q') # Quit
+				print_info "Continuing normal boot..."
+				finished=true
+				;;
 
-			echo "Entering bash..."
-			bash
-	
-		elif [[ "$key" = 'd' ]]; then
-	
-			# Make sure there is a system at @root before proceeding
-			# You must keep .snapshots and @root in / or the system won't start
-			if [ -d $mnt$root/etc ]; then
-
-				echo "Deleting / (excepting .snapshots and $root)..."
-			
-				rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var
-			
-			else
-			
-				error "No system located at $root. Will not delete main system."
-		
-			fi
-
-		elif [[ "$key" = '' ]]; then  # ie., <ENTER> was pressed
-			
-			echo boot "$root"
-			boot "$root"
-
-		elif [[ "$key" = 'q' ]]; then
-
-			echo "Exiting."
-			finished=true
-
-			sleep 1
-		
-		else
-
-			error "Not an known option ($key). Please try again."
-
-		fi
+			*) # Invalid
+				print_error "Invalid option: '$key'"
+				sleep 1
+				showMenu=true
+				;;
+		esac
 
 	done
-	
-	sleep 1
 
+	sleep 1
 }
