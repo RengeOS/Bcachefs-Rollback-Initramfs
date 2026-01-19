@@ -307,7 +307,7 @@ run_latehook() {
 			if [ -z "$snapshot_name" ]; then
 				error "Snapshot name cannot be empty."
 			else
-				snapshot_target="$snapshot_dir/@root-$snapshot_name"
+				snapshot_target="$snapshot_dir/@root-created-$snapshot_name"
 				if [ -d "$mnt$snapshot_target" ]; then
 					error "Snapshot $snapshot_target already exists."
 				else
