@@ -1,0 +1,72 @@
+#!/bin/bash
+
+post_install() {
+    local conf="/etc/mkinitcpio.conf"
+    local hook="bcachefs-rollback"
+    local modules=("squashfs")
+    
+    echo "==> Configuring mkinitcpio for bcachefs-rollback..."
+    
+    for mod in "${modules[@]}"; do
+        if ! grep -qE "^MODULES=\([^)]*\b${mod}\b" "${conf}"; then
+            echo "  -> Adding module: ${mod}"
+            sed -i "/^MODULES=/s/)/ ${mod})/" "${conf}"
+            sed -i 's/MODULES=( /MODULES=(/' "${conf}"
+        else
+            echo "  -> Module ${mod} already exists"
+        fi
+    done
+    
+    if ! grep -qE "^HOOKS=\([^)]*\b${hook}\b" "${conf}"; then
+        echo "  -> Adding hook: ${hook}"
+        sed -i "/^HOOKS=/s/)/ ${hook})/" "${conf}"
+        sed -i 's/HOOKS=( /HOOKS=(/' "${conf}"
+    else
+        echo "  -> Hook ${hook} already exists"
+    fi
+    
+    echo "==> Rebuilding initramfs..."
+    mkinitcpio -P
+    
+    echo "==> Done! Check /etc/mkinitcpio.conf"
+}
+
+post_upgrade() {
+    echo "==> Rebuilding initramfs after update..."
+    mkinitcpio -P
+}
+
+post_remove() {
+    local conf="/etc/mkinitcpio.conf"
+    local hook="bcachefs-rollback"
+    local modules=("squashfs")
+    
+    echo "==> Removing bcachefs-rollback configuration..."
+    
+    if grep -qE "^HOOKS=\([^)]*\b${hook}\b" "${conf}"; then
+        echo "  -> Removing hook: ${hook}"
+        sed -i "/^HOOKS=/s/\s*${hook}\s*/ /g" "${conf}"
+        sed -i '/^HOOKS=/s/  */ /g' "${conf}"
+        sed -i 's/HOOKS=( /HOOKS=(/' "${conf}"
+        sed -i '/^HOOKS=/s/ )/)/' "${conf}"
+    else
+        echo "  -> Hook ${hook} not found"
+    fi
+    
+    for mod in "${modules[@]}"; do
+        if grep -qE "^MODULES=\([^)]*\b${mod}\b" "${conf}"; then
+            echo "  -> Removing module: ${mod}"
+            sed -i "/^MODULES=/s/\s*${mod}\s*/ /g" "${conf}"
+            sed -i '/^MODULES=/s/  */ /g' "${conf}"
+            sed -i 's/MODULES=( /MODULES=(/' "${conf}"
+            sed -i '/^MODULES=/s/ )/)/' "${conf}"
+        else
+            echo "  -> Module ${mod} not found"
+        fi
+    done
+    
+    echo "==> Rebuilding initramfs..."
+    mkinitcpio -P
+    
+    echo "==> bcachefs-rollback configuration removed"
+}
