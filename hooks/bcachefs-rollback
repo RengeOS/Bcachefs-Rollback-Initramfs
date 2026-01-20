@@ -324,29 +324,31 @@ run_latehook() {
 				fi
 			fi
 
-		elif [[ "$key" = 'N' ]]; then
-			if [ -d "$mnt/etc" ]; then
-				echo -e "\nEnter a name for the new snapshot will be create from /:"
-				read snapshot_name
-				if [ -z "$snapshot_name" ]; then
-					error "Snapshot name cannot be empty."
-				else
-					snapshot_target="$snapshot_dir/@created-root-$snapshot_name"
-					if [ -d "$mnt$snapshot_target" ]; then
-						error "Snapshot $snapshot_target already exists."
-					else
-						echo "Create snapshot from / to $snapshot_target? (y/n)"
-						read confirm
-						if [[ $confirm = 'y' ]]; then
-							bcachefs subvolume snapshot "$mnt" "$mnt$snapshot_target"
-							echo "Snapshot created."
-						else
-							echo "Cancelled."
-						fi
-					fi
-				else
-					error "No system found at /."
-			fi
+elif [[ "$key" = 'N' ]]; then
+    if [ -d "$mnt/etc" ]; then
+        echo -e "\nEnter a name for the new snapshot will be create from /:"
+        read snapshot_name
+        if [ -z "$snapshot_name" ]; then
+            error "Snapshot name cannot be empty."
+        else
+            snapshot_target="$snapshot_dir/@created-root-$snapshot_name"
+            if [ -d "$mnt$snapshot_target" ]; then
+                error "Snapshot $snapshot_target already exists."
+            else 
+                echo "Create snapshot from / to $snapshot_target? (y/n)"
+                read confirm
+                if [[ $confirm = 'y' ]]; then
+                    bcachefs subvolume snapshot "$mnt" "$mnt$snapshot_target"
+                    echo "Snapshot created."
+                else
+                    echo "Cancelled."
+                fi
+            fi
+        fi
+    else
+        error "No system found at /."
+    fi
+
 
 		elif [[ "$key" = 'E' ]]; then
 			echo -e "\nAvailable snapshots:"
