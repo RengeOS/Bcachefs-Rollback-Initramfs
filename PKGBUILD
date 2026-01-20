@@ -8,15 +8,13 @@ url="https://github.com/RengeOS/bcachefs-snapshots-hook-initramfs"
 license=('GPL')
 depends=('mkinitcpio' 'bcachefs-tools' 'rsync')
 install="${pkgname}.install"
-source=('install/bcachefs-rollback'
-        'hooks/bcachefs-rollback')
-sha256sums=('SKIP'
-            'SKIP')
+source=()
+sha256sums=()
 
 package() {
-    install -Dm644 "${srcdir}/install/bcachefs-rollback" \
+    install -Dm644 "${startdir}/install/bcachefs-rollback" \
         "${pkgdir}/usr/lib/initcpio/install/bcachefs-rollback"
     
-    install -Dm644 "${srcdir}/hooks/bcachefs-rollback" \
+    install -Dm644 "${startdir}/hooks/bcachefs-rollback" \
         "${pkgdir}/usr/lib/initcpio/hooks/bcachefs-rollback"
 }
