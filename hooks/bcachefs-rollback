@@ -494,25 +494,27 @@ run_latehook() {
 
 				echo "Restoring / (excepting .snapshots and $root)..."
 			
-				cp -rf $mnt$root/bin /mnt/bin
-				cp -rf $mnt$root/boot /mnt/boot
-				cp -rf $mnt$root/dev /mnt/dev
-				cp -rf $mnt$root/efi /mnt/efi 
-				cp -rf $mnt$root/etc /mnt/etc 
-				cp -rf $mnt$root/home /mnt/home 
-				cp -rf $mnt$root/lib /mnt/lib 
-				cp -rf $mnt$root/lib64 /mnt/lib64 
-				cp -rf $mnt$root/'lost+found' /mnt/'lost+found'
-				cp -rf $mnt$root/opt /mnt/opt 
-				cp -rf $mnt$root/proc /mnt/proc 
-				cp -rf $mnt$root/root /mnt/root 
-				cp -rf $mnt$root/run /mnt/run 
-				cp -rf $mnt$root/sbin /mnt/sbin 
-				cp -rf $mnt$root/srv /mnt/srv 
-				cp -rf $mnt$root/sys /mnt/sys 
-				cp -rf $mnt$root/tmp /mnt/tmp 
-				cp -rf $mnt$root/usr /mnt/usr 
-				cp -rf $mnt$root/var /mnt/var
+				cp -rf $mnt$root/bin /mnt/bin > /dev/null 2>&1
+				cp -rf $mnt$root/boot /mnt/boot > /dev/null 2>&1
+				cp -rf $mnt$root/dev /mnt/dev > /dev/null 2>&1
+				cp -rf $mnt$root/efi /mnt/efi > /dev/null 2>&1
+				cp -rf $mnt$root/etc /mnt/etc > /dev/null 2>&1
+				cp -rf $mnt$root/home /mnt/home > /dev/null 2>&1
+				cp -rf $mnt$root/lib /mnt/lib > /dev/null 2>&1
+				cp -rf $mnt$root/lib64 /mnt/lib64 > /dev/null 2>&1
+				cp -rf $mnt$root/'lost+found' /mnt/'lost+found' > /dev/null 2>&1
+				cp -rf $mnt$root/opt /mnt/opt > /dev/null 2>&1
+				cp -rf $mnt$root/proc /mnt/proc > /dev/null 2>&1
+				cp -rf $mnt$root/root /mnt/root > /dev/null 2>&1
+				cp -rf $mnt$root/run /mnt/run > /dev/null 2>&1
+				cp -rf $mnt$root/sbin /mnt/sbin > /dev/null 2>&1
+				cp -rf $mnt$root/srv /mnt/srv > /dev/null 2>&1
+				cp -rf $mnt$root/sys /mnt/sys > /dev/null 2>&1
+				cp -rf $mnt$root/tmp /mnt/tmp > /dev/null 2>&1
+				cp -rf $mnt$root/usr /mnt/usr > /dev/null 2>&1
+				cp -rf $mnt$root/var /mnt/var > /dev/null 2>&1
+
+				echo "Done! restored / from @current-root"
 			
 			else
 			
@@ -528,8 +530,8 @@ run_latehook() {
 
 				echo "Deleting / (excepting .snapshots and $root)..."
 			
-				rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var
-			
+				rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var > /dev/null 2>&1
+				echo "Done! deleted / (excepting .snapshots and $root)"
 			else
 			
 				error "No system located at $root. Will not delete main system."
