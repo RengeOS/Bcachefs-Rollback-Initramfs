@@ -135,7 +135,7 @@ run_latehook() {
 <c> boot custom dir
 
 ---Restore Options---
-<p> restore root system from @current-root (using mv)
+<p> restore root system from @current-root (using cp)
 <r> restore snapshot to @current-root (backup old)
 <R> restore snapshot to @current-root (using mv)
 <u> restore snapshot using rsync
@@ -494,25 +494,25 @@ run_latehook() {
 
 				echo "Restoring / (excepting .snapshots and $root)..."
 			
-				cp -rf $mnt$root/bin /mnt/bin > /dev/null 2>&1
-				cp -rf $mnt$root/boot /mnt/boot > /dev/null 2>&1
-				cp -rf $mnt$root/dev /mnt/dev > /dev/null 2>&1
-				cp -rf $mnt$root/efi /mnt/efi > /dev/null 2>&1
-				cp -rf $mnt$root/etc /mnt/etc > /dev/null 2>&1
-				cp -rf $mnt$root/home /mnt/home > /dev/null 2>&1
-				cp -rf $mnt$root/lib /mnt/lib > /dev/null 2>&1
-				cp -rf $mnt$root/lib64 /mnt/lib64 > /dev/null 2>&1
-				cp -rf $mnt$root/'lost+found' /mnt/'lost+found' > /dev/null 2>&1
-				cp -rf $mnt$root/opt /mnt/opt > /dev/null 2>&1
-				cp -rf $mnt$root/proc /mnt/proc > /dev/null 2>&1
-				cp -rf $mnt$root/root /mnt/root > /dev/null 2>&1
-				cp -rf $mnt$root/run /mnt/run > /dev/null 2>&1
-				cp -rf $mnt$root/sbin /mnt/sbin > /dev/null 2>&1
-				cp -rf $mnt$root/srv /mnt/srv > /dev/null 2>&1
-				cp -rf $mnt$root/sys /mnt/sys > /dev/null 2>&1
-				cp -rf $mnt$root/tmp /mnt/tmp > /dev/null 2>&1
-				cp -rf $mnt$root/usr /mnt/usr > /dev/null 2>&1
-				cp -rf $mnt$root/var /mnt/var > /dev/null 2>&1
+				cp -a $mnt$root/bin /mnt/bin > /dev/null 2>&1
+				cp -a $mnt$root/boot /mnt/boot > /dev/null 2>&1
+				cp -a $mnt$root/dev /mnt/dev > /dev/null 2>&1
+				cp -a $mnt$root/efi /mnt/efi > /dev/null 2>&1
+				cp -a $mnt$root/etc /mnt/etc > /dev/null 2>&1
+				cp -a $mnt$root/home /mnt/home > /dev/null 2>&1
+				cp -a $mnt$root/lib /mnt/lib > /dev/null 2>&1
+				cp -a $mnt$root/lib64 /mnt/lib64 > /dev/null 2>&1
+				cp -a $mnt$root/'lost+found' /mnt/'lost+found' > /dev/null 2>&1
+				cp -a $mnt$root/opt /mnt/opt > /dev/null 2>&1
+				cp -a $mnt$root/proc /mnt/proc > /dev/null 2>&1
+				cp -a $mnt$root/root /mnt/root > /dev/null 2>&1
+				cp -a $mnt$root/run /mnt/run > /dev/null 2>&1
+				cp -a $mnt$root/sbin /mnt/sbin > /dev/null 2>&1
+				cp -a $mnt$root/srv /mnt/srv > /dev/null 2>&1
+				cp -a $mnt$root/sys /mnt/sys > /dev/null 2>&1
+				cp -a $mnt$root/tmp /mnt/tmp > /dev/null 2>&1
+				cp -a $mnt$root/usr /mnt/usr > /dev/null 2>&1
+				cp -a $mnt$root/var /mnt/var > /dev/null 2>&1
 
 				echo "Done! restored / from @current-root"
 			
