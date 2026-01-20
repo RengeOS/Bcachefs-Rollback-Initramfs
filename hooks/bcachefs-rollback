@@ -492,7 +492,7 @@ run_latehook() {
 			# You must keep .snapshots and @root in / or the system won't start
 			if [ ! -d $mnt/etc ]; then
 
-				echo "Restoring / (excepting .snapshots and $root)..."
+				echo "Restoring / (excepting .snapshots and $root) and wait for a long time..."
 			
 				cp -a $mnt$root/bin /mnt/bin > /dev/null 2>&1
 				cp -a $mnt$root/boot /mnt/boot > /dev/null 2>&1
@@ -528,7 +528,7 @@ run_latehook() {
 			# You must keep .snapshots and @root in / or the system won't start
 			if [ -d $mnt$root/etc ]; then
 
-				echo "Deleting / (excepting .snapshots and $root)..."
+				echo "Deleting / (excepting .snapshots and $root) and wait for a long time..."
 			
 				rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var > /dev/null 2>&1
 				echo "Done! deleted / (excepting .snapshots and $root)"
