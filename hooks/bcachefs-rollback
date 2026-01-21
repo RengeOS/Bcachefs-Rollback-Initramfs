@@ -126,6 +126,10 @@ run_latehook() {
 			
 			echo -e "\n\nWhat would you like to do?
 
+--NOTE: _The snapshots that starts by default for each session is @current-root
+	so make sure you already have @current-root:) and have a good day!
+
+
 -*-START-LIST-OPTIONS-*-
 
 ---Boot Options---
@@ -136,13 +140,13 @@ run_latehook() {
 
 ---Restore Options---
 <p> restore root system from @current-root (using cp)
-<r> restore snapshot to @current-root (backup old)
-<R> restore snapshot to @current-root (using mv)
-<u> restore snapshot using rsync
+<r> restore other snapshot to @current-root (backup old)
+<R> restore other snapshot to @current-root (using mv)
+<u> restore other snapshot using rsync
 <y> restore squashfs
 
 ---Create Options---
-<C> create a new snapshot
+<C> create a new snapshot from @current-root
 <N> create a new snapshot from /
 <n> create @current-root snapshot from / (Recommend for first use)
 <z> create squashfs
