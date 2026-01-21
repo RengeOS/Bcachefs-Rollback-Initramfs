@@ -129,7 +129,6 @@ run_latehook() {
 --NOTE: _The snapshots that starts by default for each session is @current-root
 	so make sure you already have @current-root:) and have a good day!
 
-
 -*-START-LIST-OPTIONS-*-
 
 ---Boot Options---
