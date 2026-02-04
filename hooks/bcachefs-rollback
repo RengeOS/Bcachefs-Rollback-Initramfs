@@ -8,11 +8,10 @@ mountOpts='noatime,fix_errors'
 new_root=/new_root
 user=user
 mnt=/mnt
-temp="$mnt/temp"            # Used for changing from ro to rw
-squashfs_dir='/.squashfs/'  # Default squashfs directory
-efiPartNum='1'              # What partition is efi on? (leave blank to not mount)
-bootPartNum='2'             # What partition is boot on? (leave blank to not mount)
-
+temp="$mnt/temp"           # Used for changing from ro to rw
+squashfs_dir='/.squashfs/' # Default squashfs directory
+efiPartNum='1'             # What partition is efi on? (leave blank to not mount)
+bootPartNum='2'            # What partition is boot on? (leave blank to not mount)
 
 # Useful file: /usr/lib/initcpio/init
 
@@ -22,152 +21,151 @@ squashfsFlag=false
 rorwFlag=false
 
 # --*-------------------------------------------------------------------------*--
+
 # Function to list snapshots excluding @current-root for safety.
 list_snapshots() {
-    if [ -d "$mnt$snapshot_dir" ]; then
-        local snapshots=$(ls -d "$mnt$snapshot_dir"/*/ 2>/dev/null | sed "s|$mnt$snapshot_dir/||g" | sed 's|/||g' | grep -v "@current-root")
-        if [ -z "$snapshots" ]; then
-            echo "There's no snapshot here. Press [enter] to return."
-            read -n 1
-            return 1
-        else
-            echo "$snapshots"
-            return 0
-        fi
-    else
-        echo "There's no snapshot here. Press [enter] to return."
-        read -n 1
-        return 1
-    fi
+	if [ -d "$mnt$snapshot_dir" ]; then
+		local snapshots=$(ls -d "$mnt$snapshot_dir"/*/ 2>/dev/null | sed "s|$mnt$snapshot_dir/||g" | sed 's|/||g' | grep -v "@current-root")
+		if [ -z "$snapshots" ]; then
+			echo "There's no snapshot here. Press [enter] to return."
+			read -n 1
+			return 1
+		else
+			echo "$snapshots"
+			return 0
+		fi
+	else
+		echo "There's no snapshot here. Press [enter] to return."
+		read -n 1
+		return 1
+	fi
 }
 
-# Function to list available squashfs files in the squashfs directory
+# Function to list available files in the squashfs directory
 list_squashfs() {
-    if [ -d "$mnt$squashfs_dir" ]; then
-        # List only .squashfs files in the directory
-        local squashFiles=$(ls "$mnt$squashfs_dir"*.squashfs 2>/dev/null | xargs -I {} basename {} 2>/dev/null)
-        if [ -z "$squashFiles" ]; then
-            echo "There's no squashfs file here. Press [enter] to return."
-            read -n 1
-            return 1
-        else
-            echo "$squashFiles"
-            return 0
-        fi
-    else
-        echo "There's no squashfs file here. Press [enter] to return."
-        read -n 1
-        return 1
-    fi
+	if [ -d "$mnt$squashfs_dir" ]; then
+		# List all files in the directory (not only .squashfs)
+		local squashFiles=$(ls -1 "$mnt$squashfs_dir" 2>/dev/null)
+		if [ -z "$squashFiles" ]; then
+			echo "There's no file in $squashfs_dir directory. Press [enter] to return."
+			read -n 1
+			return 1
+		else
+			echo "$squashFiles"
+			return 0
+		fi
+	else
+		echo "Directory $squashfs_dir does not exist. Press [enter] to return."
+		read -n 1
+		return 1
+	fi
 }
 
 boot() {
 
-    [ "$rorwFlag" = 'true' ] && create_rorw "$1"
+	[ "$rorwFlag" = 'true' ] && create_rorw "$1"
 
-    # Check if the boot directory contains a bootable system (assume working system has /etc)
-    if [ -d "$mnt$1/etc" ]; then
-            
-        echo -e "Booting $1...\n"
+	# Check if the boot directory contains a bootable system (assume working system has /etc)
+	if [ -d "$mnt$1/etc" ]; then
 
-        if [ $tmpfsFlag = 'true' ]; then
-            echo create_tmpfs "$1"
-            create_tmpfs "$1"
-        else
-            mount --bind -o "$mountOpts" "$mnt$1" ${new_root}
-        fi
-    
-        [ $overlayFlag = 'true' ] && create_overlay
-    
-        mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
-    
-        finished=true
-        
-    else
+		echo -e "Booting $1...\n"
 
-        error "No system found at $1."
-        showMenu=true        
-    fi
+		if [ $tmpfsFlag = 'true' ]; then
+			echo create_tmpfs "$1"
+			create_tmpfs "$1"
+		else
+			mount --bind -o "$mountOpts" "$mnt$1" ${new_root}
+		fi
+
+		[ $overlayFlag = 'true' ] && create_overlay
+
+		mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
+
+		finished=true
+
+	else
+
+		error "No system found at $1."
+		showMenu=true
+	fi
 
 }
 
 create_rorw() {
 
-    echo "Creating ro to rw snapshot..."
+	echo "Creating ro to rw snapshot..."
 
-    bcachefs subvolume snapshot "$mnt$1" "$temp"
-    bcachefs subvolume delete "$mnt$1"
-    bcachefs subvolume snapshot "$temp" "$mnt$1"
-    bcachefs subvolume delete "$temp"
+	bcachefs subvolume snapshot "$mnt$1" "$temp"
+	bcachefs subvolume delete "$mnt$1"
+	bcachefs subvolume snapshot "$temp" "$mnt$1"
+	bcachefs subvolume delete "$temp"
 
 }
 
 create_overlay() {
 
-   echo -e "Booting in overlay mode...\n"
+	echo -e "Booting in overlay mode...\n"
 
-   local lower_dir=$(mktemp -d -p /)
-   local ram_dir=$(mktemp -d -p /)
-   mount --move ${new_root} ${lower_dir}
-   mount -t tmpfs cowspace ${ram_dir}
-   mkdir -p ${ram_dir}/upper ${ram_dir}/work
-   mount -t overlay -o lowerdir=${lower_dir},upperdir=${ram_dir}/upper,workdir=${ram_dir}/work rootfs ${new_root}
+	local lower_dir=$(mktemp -d -p /)
+	local ram_dir=$(mktemp -d -p /)
+	mount --move ${new_root} ${lower_dir}
+	mount -t tmpfs cowspace ${ram_dir}
+	mkdir -p ${ram_dir}/upper ${ram_dir}/work
+	mount -t overlay -o lowerdir=${lower_dir},upperdir=${ram_dir}/upper,workdir=${ram_dir}/work rootfs ${new_root}
 
 }
 
 create_tmpfs() {
 
-    mount -t tmpfs -o size=80% none $new_root
+	mount -t tmpfs -o size=80% none $new_root
 
-    echo -e "\nCopying root filesystem to RAM. Please be patient...\n"
+	echo -e "\nCopying root filesystem to RAM. Please be patient...\n"
 
-    rsync --info=progress2 -axHAXSW --exclude=/efi/ --exclude=/boot/ --exclude=/home/user/.cache/ --exclude=setup.tar.gz --exclude /home/user/.local/share/Trash/ --exclude=/dev/ --exclude=/var/cache/pacman/ --exclude=/run/timeshift/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/mnt/ --exclude=$snapshot_dir/* --exclude=/var/tmp/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/* "$mnt$1/" ${new_root}
+	rsync --info=progress2 -axHAXSW --exclude=/efi/ --exclude=/boot/ --exclude=/home/user/.cache/ --exclude=setup.tar.gz --exclude /home/user/.local/share/Trash/ --exclude=/dev/ --exclude=/var/cache/pacman/ --exclude=/run/timeshift/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/mnt/ --exclude=$snapshot_dir/* --exclude=/var/tmp/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/* "$mnt$1/" ${new_root}
 
 }
 
 error() {
 
-    echo -e "\n<<< $1 >>>\n"
+	echo -e "\n<<< $1 >>>\n"
 
 }
 
 run_latehook() {
 
-    # Automatically find the proper root partition which was booted
-    root_part=$(mount | grep ${new_root} | sed "s# on ${new_root}.*##")
-    disk=$(mount | grep ${new_root} | sed "s#[0-9] on ${new_root}.*##")
+	# Automatically find the proper root partition which was booted
+	root_part=$(mount | grep ${new_root} | sed "s# on ${new_root}.*##")
+	disk=$(mount | grep ${new_root} | sed "s#[0-9] on ${new_root}.*##")
 
-    # System pre-mounted, but we want to mount the systems differently
-    umount ${new_root}
+	# System pre-mounted, but we want to mount the systems differently
+	umount ${new_root}
 
-    mkdir -p $mnt
+	mkdir -p $mnt
 
-    
-    finished=false
-    showMenu=false
+	finished=false
+	showMenu=false
 
-    echo bcachefs mount -o "$mountOpts" ${root_part} ${mnt}
-    bcachefs mount -o "$mountOpts" ${root_part} ${mnt}
+	echo bcachefs mount -o "$mountOpts" ${root_part} ${mnt}
+	bcachefs mount -o "$mountOpts" ${root_part} ${mnt}
 
-    # Check if the bcachefs snapshots folder exists. If not, create it.
-    if [ ! -d "$mnt/.snapshots" ]; then
-        bcachefs subvolume create "$mnt/.snapshots"
-    fi
+	# Check if the bcachefs snapshots folder exists. If not, create it.
+	if [ ! -d "$mnt/.snapshots" ]; then
+		bcachefs subvolume create "$mnt/.snapshots"
+	fi
 
-    # Check if the squashfs folder exists. If not, create it.
-    if [ ! -d "$mnt/.squashfs" ]; then
-        mkdir -p "$mnt/.squashfs"
-    fi
+	# Check if the squashfs folder exists. If not, create it.
+	if [ ! -d "$mnt/.squashfs" ]; then
+		mkdir -p "$mnt/.squashfs"
+	fi
 
+	echo -e "\nPress any key for bcachefs rollback.\n"
+	[ $(read -sn1 -t 2 && echo 1) ] && showMenu=true
 
-    echo -e "\nPress any key for bcachefs rollback.\n"
-    [ $(read -sn1 -t 2 && echo 1) ] && showMenu=true
+	while [ ! "$finished" = 'true' ]; do
 
-    while [ ! "$finished" = 'true' ]; do
+		if [ $showMenu = 'true' ]; then
 
-        if [ $showMenu = 'true' ]; then
-            
-            echo -e "\n\nWhat would you like to do?
+			echo -e "\n\nWhat would you like to do?
 
 --NOTE: _The snapshots that starts by default for each session is @current-root
     so make sure you already have @current-root:) and have a good day!
@@ -216,605 +214,611 @@ run_latehook() {
 
 <ENTER> bboot @current-root\n\n"
 
-            read -sn 1 key
+			read -sn 1 key
 
-        fi
+		fi
 
+		if [[ "$key" = 'u' ]]; then
 
-        if [[ "$key" = 'u' ]]; then
-        
-            echo -e "\nEnter a source.
+			echo -e "\nEnter a source.
 (eg., '/', '/@root', '/.snapshots/first')\n"
 
-            read Source
-    
-            echo -e "\nEnter a target.
+			read Source
+
+			echo -e "\nEnter a target.
 (eg., '/', '/@root', '/.snapshots/first')\n"
 
-            read Target
+			read Target
 
-            mkdir -p "$mnt$Target"
+			mkdir -p "$mnt$Target"
 
-            rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ --exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ --exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ --exclude=$mnt/ --exclude=$snapshot_dir/ --exclude=$squashfs_dir"
+			rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ --exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ --exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ --exclude=$mnt/ --exclude=$snapshot_dir/ --exclude=$squashfs_dir"
 
+			rsync --dry-run -v $rsync_params "$mnt$Source" "$mnt$Target" | less
 
-            rsync --dry-run -v $rsync_params "$mnt$Source" "$mnt$Target" | less
+			read -p "Type 'y' to proceed with rsync or any other key to exit..." choice
 
+			if [[ $choice = 'y' ]]; then
 
-            read -p "Type 'y' to proceed with rsync or any other key to exit..." choice
+				rsync --info=progress2 $rsync_params "$mnt$Source" "$mnt$Target"
 
-            if [[ $choice = 'y' ]]; then
+				echo "Sync finished."
 
-                rsync --info=progress2 $rsync_params "$mnt$Source" "$mnt$Target"
-                
-                echo "Sync finished."
-            
-            else
-                echo "Exiting."
-            fi
+			else
+				echo "Exiting."
+			fi
 
-        elif [[ "$key" = 'f' ]]; then
-            
-            echo 'To save logs run: bcachefs fsck -p > $mnt/log_file.txt 2>&1'
-            echo bcachefs fsck -p ${root_part}
-            bcachefs fsck -p ${root_part}
-            
-        elif [[ "$key" = 'z' ]]; then
-            
-            echo -e "\nEnter a source path to create from.
+		elif [[ "$key" = 'f' ]]; then
+
+			echo 'To save logs run: bcachefs fsck -p > $mnt/log_file.txt 2>&1'
+			echo bcachefs fsck -p ${root_part}
+			bcachefs fsck -p ${root_part}
+
+		elif [[ "$key" = 'z' ]]; then
+
+			echo -e "\nEnter a source path to create from.
 (eg., '/', '/.snapshots/@current-root')\n"
 
-            read squashSource
+			read squashSource
 
-            echo -e "\nEnter a name for the squashfs file (without path):\n"
-            read customSquashFile
-            
-            # Add .squashfs extension if not present
-            if [[ "$customSquashFile" != *.squashfs ]]; then
-                customSquashFile="$customSquashFile.squashfs"
-            fi
-            
-            [ $efiPartNum ] && mount --mkdir $disk$efiPartNum $mnt/efi
-            [ $bootPartNum ] && mount --mkdir $disk$bootPartNum $mnt/boot
-            
-            cd $mnt$squashSource
+			echo -e "\nEnter a name for the squashfs file (without path):\n"
+			read customSquashFile
 
-            mksquashfs . "$mnt$squashfs_dir$customSquashFile" -noappend -no-recovery -mem-percent 20 -comp lz4 -e root.squashfs -e "$customSquashFile" -e home/$user/.cache/ -e home/$user/.local/share/Trash/ -e mnt/ -e var/cache/pacman/ -e .snapshots/* -e .squashfs/*
+			# Add .squashfs extension if not present
+			if [[ "$customSquashFile" != *.squashfs ]]; then
+				customSquashFile="$customSquashFile.squashfs"
+			fi
 
-            [ $efiPartNum ] && umount $mnt/efi
-            [ $bootPartNum ] && umount $mnt/boot
+			[ $efiPartNum ] && mount --mkdir $disk$efiPartNum $mnt/efi
+			[ $bootPartNum ] && mount --mkdir $disk$bootPartNum $mnt/boot
 
-            sleep 1
+			cd $mnt$squashSource
 
-            ls -lah "$mnt$squashfs_dir$customSquashFile"
-        
-        elif [[ "$key" = 'x' ]]; then
+			mksquashfs . "$mnt$squashfs_dir$customSquashFile" -noappend -no-recovery -mem-percent 20 -comp lz4 -e root.squashfs -e "$customSquashFile" -e home/$user/.cache/ -e home/$user/.local/share/Trash/ -e mnt/ -e var/cache/pacman/ -e .snapshots/* -e .squashfs/*
 
-            # List available squashfs files using the list_squashfs function
-            echo -e "\nAvailable squashfs files:\n"
-            if list_squashfs; then
-                echo -e "\nEnter the name of the squashfs file (without path):\n"
-                read customSquashFile
-                
-                if [[ "$customSquashFile" != *.squashfs ]]; then
-                    customSquashFile="$customSquashFile.squashfs"
-                fi
-                
-                if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
-                    error "Squashfs file not found: $customSquashFile"
-                    continue
-                fi
-            else
-                # Function already displayed error message and waited for enter
-                continue
-            fi
+			[ $efiPartNum ] && umount $mnt/efi
+			[ $bootPartNum ] && umount $mnt/boot
 
-            if [ $tmpfsFlag = 'true' ]; then
-                
-                echo -e "\nExtracting archive to RAM. Please be patient...\n"
-                mount -t tmpfs -o size=80% none $new_root
-                unsquashfs -d $new_root -f "$mnt$squashfs_dir/$customSquashFile"
-            
-            elif [ $overlayFlag = 'true' ]; then
+			sleep 1
 
-                mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root/"
-                create_overlay
-            
-            else
-                
-                mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashfsFile" --target "$new_root/"
+			ls -lah "$mnt$squashfs_dir$customSquashFile"
 
-            fi
-    
-            mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
+		elif [[ "$key" = 'x' ]]; then
+			# List all available files in squashfs directory
+			echo -e "\nAvailable files in $squashfs_dir:\n"
+			if list_squashfs; then
+				while true; do
+					echo -e "\nEnter the name of the file (exactly as listed above):"
+					read customSquashFile
 
-            finished=true
+					if [ -z "$customSquashFile" ]; then
+						error "File name cannot be empty."
+						continue
+					fi
 
-        elif [[ "$key" = 'D' ]]; then
-            echo -e "\nAvailable snapshots:"
-            if ! list_snapshots; then
-                continue
-            fi
-            echo -e "\nEnter the name of the snapshot to delete:"
-            read snapshot_name
-            if [ -z "$snapshot_name" ]; then
-                error "Snapshot name cannot be empty."
-            else
-                snapshot_path="$snapshot_dir/$snapshot_name"
-                if [ -d "$mnt$snapshot_path" ] && [ "$snapshot_name" != "@current-root" ]; then
-                    echo "Delete snapshot $snapshot_path? (y/n)"
-                    read confirm
-                    if [[ $confirm = 'y' ]]; then
-                        bcachefs subvolume delete "$mnt$snapshot_path"
-                        echo "Snapshot deleted."
-                    else
-                        echo "Cancelled."
-                    fi
-                else
-                    error "Invalid snapshot name or cannot delete @current-root."
-                fi
-            fi
+					# Check if file exists
+					if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
+						error "File not found: $customSquashFile"
+						echo "Please try again."
+						continue
+					else
+						break # File exists, exit the loop
+					fi
+				done
+			else
+				# Function already displayed error message and waited for enter
+				continue
+			fi
 
+			if [ $tmpfsFlag = 'true' ]; then
+				echo -e "\nExtracting archive to RAM. Please be patient...\n"
+				mount -t tmpfs -o size=80% none $new_root
+				unsquashfs -d $new_root -f "$mnt$squashfs_dir/$customSquashFile"
+			elif [ $overlayFlag = 'true' ]; then
+				mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root/"
+				create_overlay
+			else
+				mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root/"
+			fi
 
-        elif [[ "$key" = 'k' ]]; then
-            echo -e "\nAvailable squashfs files:\n"
-            if list_squashfs; then
-                echo -e "\nEnter the name of the squashfs file to delete (without path):\n"
-                read squashfs_to_delete
-                
-                # Add .squashfs extension if not present
-                if [[ "$squashfs_to_delete" != *.squashfs ]]; then
-                    squashfs_to_delete="$squashfs_to_delete.squashfs"
-                fi
-                
-                full_path="$mnt$squashfs_dir$squashfs_to_delete"
-                
-                if [ -f "$full_path" ]; then
-                    echo "Delete squashfs file $squashfs_to_delete? (y/n)"
-                    read confirm
-                    if [[ $confirm = 'y' ]]; then
-                        rm -f "$full_path"
-                        echo "Squashfs file deleted."
-                    else
-                        echo "Cancelled."
-                    fi
-                else
-                    error "Squashfs file not found: $squashfs_to_delete"
-                fi
-            else
-                # Function already displayed error message and waited for enter
-                continue
-            fi
-        
-        elif [[ "$key" = 'y' ]]; then
-            
-            # List available squashfs files using the list_squashfs function
-            echo -e "\nAvailable squashfs files:\n"
-            if list_squashfs; then
-                echo -e "\nEnter the name of the squashfs file (without path):\n"
-                read customSquashFile
-                
-                if [[ "$customSquashFile" != *.squashfs ]]; then
-                    customSquashFile="$customSquashFile.squashfs"
-                fi
-                
-                if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
-                    error "Squashfs file not found: $customSquashFile"
-                    continue
-                fi
-            else
-                # Function already displayed error message and waited for enter
-                continue
-            fi
-            
-            ls ${mnt} "$mnt$snapshot_dir"
+			mount --mkdir --bind -o "$mountOpts" "$mnt$snapshot_dir" "$new_root$snapshot_dir"
+			finished=true
 
-            echo -e "\nType the path you'd like to restore.\n"
+		elif [[ "$key" = 'D' ]]; then
+			echo -e "\nAvailable snapshots:"
+			if ! list_snapshots; then
+				continue
+			fi
+			echo -e "\nEnter the name of the snapshot to delete:"
+			read snapshot_name
+			if [ -z "$snapshot_name" ]; then
+				error "Snapshot name cannot be empty."
+			else
+				snapshot_path="$snapshot_dir/$snapshot_name"
+				if [ -d "$mnt$snapshot_path" ] && [ "$snapshot_name" != "@current-root" ]; then
+					echo "Delete snapshot $snapshot_path? (y/n)"
+					read confirm
+					if [[ $confirm = 'y' ]]; then
+						bcachefs subvolume delete "$mnt$snapshot_path"
+						echo "Snapshot deleted."
+					else
+						echo "Cancelled."
+					fi
+				else
+					error "Invalid snapshot name or cannot delete @current-root."
+				fi
+			fi
 
-            read restorePath
-            
-            mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root"
-        
-            if [ "$mnt$restorePath" = "$root" ] && [ -d "$mnt$restorePath" ]; then
-                echo "Deleting subvolume in current path..."
-                bcachefs subvolume delete "$mnt$restorePath"
-                rm -rf "$mnt$restorePath"
-            fi
-            
-            mkdir -p "$mnt$restorePath"
-            echo -e "\nCopying:  cp -a . $mnt$restorePath/... Please be patient.\n"
-            
-            cd "$new_root"
-            cp -a . "$mnt$restorePath/"
+		elif [[ "$key" = 'k' ]]; then
+			echo -e "\nAvailable files in $squashfs_dir:\n"
+			if list_squashfs; then
+				while true; do
+					echo -e "\nEnter the name of the file to delete (exactly as listed above):"
+					read squashfs_to_delete
 
-            cd /
-            umount "$new_root"
-            
-            echo "All done"
+					if [ -z "$squashfs_to_delete" ]; then
+						error "File name cannot be empty."
+						continue
+					fi
 
-        elif [[ "$key" = 'Y' ]]; then
-            
-            # List available squashfs files using the list_squashfs function
-            echo -e "\nAvailable squashfs files:\n"
-            if list_squashfs; then
-                echo -e "\nEnter the name of the squashfs file (without path):\n"
-                read customSquashFile
-                
-                if [[ "$customSquashFile" != *.squashfs ]]; then
-                    customSquashFile="$customSquashFile.squashfs"
-                fi
-                
-                if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
-                    error "Squashfs file not found: $customSquashFile"
-                    continue
-                fi
-            else
-                # Function already displayed error message and waited for enter
-                continue
-            fi
-            
-            # Mount the squashfs file to $new_root
-            mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root"
-            
-            # Delete everything in /mnt except .snapshots and .squashfs (similar to option 'd')
-            echo "Deleting / (excepting .snapshots and .squashfs) and restoring from squashfs..."
-            
-            rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var > /dev/null 2>&1
-            
-            # Copy from squashfs to /mnt
-            cd "$new_root"
-            cp -a . /mnt/
+					full_path="$mnt$squashfs_dir$squashfs_to_delete"
 
-            cd /
-            umount "$new_root"
-            
-            echo "All done. Root (/) has been restored from squashfs."
+					if [ -f "$full_path" ]; then
+						echo "Delete file $squashfs_to_delete? (y/n)"
+						read confirm
+						if [[ $confirm = 'y' ]]; then
+							rm -f "$full_path"
+							echo "File deleted."
+						else
+							echo "Cancelled."
+						fi
+						break
+					else
+						error "File not found: $squashfs_to_delete"
+						echo "Please try again."
+						continue
+					fi
+				done
+			else
+				# Function already displayed error message and waited for enter
+				continue
+			fi
 
-        elif [[ "$key" = 'C' ]]; then
-            echo -e "\nEnter a name for the new snapshot:"
-            read snapshot_name
-            if [ -z "$snapshot_name" ]; then
-                error "Snapshot name cannot be empty."
-            else
-                snapshot_target="$snapshot_dir/@created-root-$snapshot_name"
-                if [ -d "$mnt$snapshot_target" ]; then
-                    error "Snapshot $snapshot_target already exists."
-                else
-                    echo "Create snapshot from $root to $snapshot_target? (y/n)"
-                    read confirm
-                    if [[ $confirm = 'y' ]]; then
-                        bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_target"
-                        echo "Snapshot created."
-                    else
-                        echo "Cancelled."
-                    fi
-                fi
-            fi
+		elif [[ "$key" = 'y' ]]; then
+			# List available files in squashfs directory
+			echo -e "\nAvailable files in $squashfs_dir:\n"
+			if list_squashfs; then
+				while true; do
+					echo -e "\nEnter the name of the file (exactly as listed above):"
+					read customSquashFile
 
-elif [[ "$key" = 'N' ]]; then
-    if [ -d "$mnt/etc" ]; then
-        echo -e "\nEnter a name for the new snapshot will be create from /:"
-        read snapshot_name
-        if [ -z "$snapshot_name" ]; then
-            error "Snapshot name cannot be empty."
-        else
-            snapshot_target="$snapshot_dir/@created-root-$snapshot_name"
-            if [ -d "$mnt$snapshot_target" ]; then
-                error "Snapshot $snapshot_target already exists."
-            else 
-                echo "Create snapshot from / to $snapshot_target? (y/n)"
-                read confirm
-                if [[ $confirm = 'y' ]]; then
-                    bcachefs subvolume snapshot "$mnt" "$mnt$snapshot_target"
-                    echo "Snapshot created."
-                else
-                    echo "Cancelled."
-                fi
-            fi
-        fi
-    else
-        error "No system found at /."
-    fi
+					if [ -z "$customSquashFile" ]; then
+						error "File name cannot be empty."
+						continue
+					fi
 
+					if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
+						error "File not found: $customSquashFile"
+						echo "Please try again."
+						continue
+					else
+						break
+					fi
+				done
+			else
+				continue
+			fi
 
-        elif [[ "$key" = 'E' ]]; then
-            echo -e "\nAvailable snapshots:"
-            if ! list_snapshots; then
-                continue
-            fi
-            echo -e "\nEnter the current name of the snapshot:"
-            read old_name
-            echo "Enter the new name for the snapshot:"
-            read new_name
-            if [ -z "$old_name" ] || [ -z "$new_name" ]; then
-                error "Names cannot be empty."
-            else
-                old_path="$snapshot_dir/$old_name"
-                new_path="$snapshot_dir/$new_name"
-                if [ -d "$mnt$old_path" ] && [ ! -d "$mnt$new_path" ] && [ "$old_name" != "@current-root" ]; then
-                    echo "Rename $old_path to $new_path? (y/n)"
-                    read confirm
-                    if [[ $confirm = 'y' ]]; then
-                        mv "$mnt$old_path" "$mnt$new_path"
-                        echo "Snapshot renamed."
-                    else
-                        echo "Cancelled."
-                    fi
-                else
-                    error "Invalid old name or new name already exists, or trying to rename @current-root."
-                fi
-            fi
+			ls ${mnt} "$mnt$snapshot_dir"
 
+			echo -e "\nType the path you'd like to restore.\n"
 
-        elif [[ "$key" = 'v' ]]; then
-            echo -e "\nAvailable squashfs files:\n"
-            if list_squashfs; then
-                echo -e "\nEnter the current name of the squashfs file (without path):\n"
-                read old_squash_name
-                
-                # Add .squashfs extension if not present
-                if [[ "$old_squash_name" != *.squashfs ]]; then
-                    old_squash_name="$old_squash_name.squashfs"
-                fi
-                
-                old_full_path="$mnt$squashfs_dir$old_squash_name"
-                
-                if [ -f "$old_full_path" ]; then
-                    echo -e "\nEnter the new name for the squashfs file (without path):\n"
-                    read new_squash_name
-                    
-                    if [ -z "$new_squash_name" ]; then
-                        error "New name cannot be empty."
-                        continue
-                    fi
-                    
-                    # Add .squashfs extension if not present
-                    if [[ "$new_squash_name" != *.squashfs ]]; then
-                        new_squash_name="$new_squash_name.squashfs"
-                    fi
-                    
-                    new_full_path="$mnt$squashfs_dir$new_squash_name"
-                    
-                    if [ -f "$new_full_path" ]; then
-                        error "A squashfs file with name '$new_squash_name' already exists."
-                    else
-                        echo "Rename $old_squash_name to $new_squash_name? (y/n)"
-                        read confirm
-                        if [[ $confirm = 'y' ]]; then
-                            mv "$old_full_path" "$new_full_path"
-                            echo "Squashfs file renamed."
-                        else
-                            echo "Cancelled."
-                        fi
-                    fi
-                else
-                    error "Squashfs file not found: $old_squash_name"
-                fi
-            else
-                # Function already displayed error message and waited for enter
-                continue
-            fi
+			read restorePath
 
-        elif [[ "$key" = 'o' ]]; then
-    
-            [ $overlayFlag = 'true' ] && overlayFlag='false' || overlayFlag='true'
-            
-            echo "overlayFlag=$overlayFlag"
+			mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root"
 
-        elif [[ "$key" = 'w' ]]; then
-            
-            [ $rorwFlag = 'true' ] && rorwFlag='false' || rorwFlag='true'
-            
-            echo "rorwFlag=$rorwFlag"
+			if [ "$mnt$restorePath" = "$root" ] && [ -d "$mnt$restorePath" ]; then
+				echo "Deleting subvolume in current path..."
+				bcachefs subvolume delete "$mnt$restorePath"
+				rm -rf "$mnt$restorePath"
+			fi
 
-        elif [[ "$key" = 't' ]]; then
-            
-            [ $tmpfsFlag = 'true' ] && tmpfsFlag='false' || tmpfsFlag='true'
-            
-            echo "tmpfsFlag=$tmpfsFlag"
-    
-        elif [[ "$key" = 'm' ]]; then
-        
-            echo "FEATURE NOT CURRENTLY WORKING! (likely due to /etc/fstab overriding?)"
-            
-            echo -e "\nType mount opts to add (will override current: $mountOpts):\n"
+			mkdir -p "$mnt$restorePath"
+			echo -e "\nCopying:  cp -a . $mnt$restorePath/... Please be patient.\n"
 
-            read mountOpts
+			cd "$new_root"
+			cp -a . "$mnt$restorePath/"
 
-            echo -e "\nMounting options '$mountOpts' were added.\n"
-    
-        elif [[ "$key" = 'n' ]]; then
-    
-            if [ -d "$mnt/etc" ]; then
+			cd /
+			umount "$new_root"
 
-                if [ ! -d "$mnt$root" ]; then
+			echo "All done"
 
-                    bcachefs subvolume snapshot "$mnt" "$mnt$root" && echo "$root snapshot created."    
-                else
-                
-                    error "There is already a $root created."
+		elif [[ "$key" = 'Y' ]]; then
+			# List available files in squashfs directory
+			echo -e "\nAvailable files in $squashfs_dir:\n"
+			if list_squashfs; then
+				while true; do
+					echo -e "\nEnter the name of the file (exactly as listed above):"
+					read customSquashFile
 
-                fi
-        
-            else
+					if [ -z "$customSquashFile" ]; then
+						error "File name cannot be empty."
+						continue
+					fi
 
-                error "No system found at /."
-    
-            fi
-    
-        elif [[ "$key" = 'c' ]]; then
-            
-            echo -e "\nType the path you'd like to boot from.\n"
+					if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
+						error "File not found: $customSquashFile"
+						echo "Please try again."
+						continue
+					else
+						break
+					fi
+				done
+			else
+				continue
+			fi
 
-            read bootPath
-        
-            boot "$bootPath"
+			# Mount the squashfs file to $new_root
+			mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root"
 
-        elif [[ "$key" = 's' ]]; then
-    
-            echo -e "\nAvailable snapshots:"
-            if ! list_snapshots; then
-                continue
-            fi
-            
-            echo -e "\nType the name of the snapshot you would like to load.\n"
-        
-            read snapshot
-        
-            boot "$snapshot_dir/$snapshot"
+			# Delete everything in /mnt except .snapshots and .squashfs (similar to option 'd')
+			echo "Deleting / (excepting .snapshots and .squashfs) and restoring from squashfs..."
 
-        elif [[ "$key" = 'b' ]]; then
+			rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var >/dev/null 2>&1
 
-            boot /
+			# Copy from squashfs to /mnt
+			cd "$new_root"
+			cp -a . /mnt/
 
-        elif [[ "$key" = 'R' ]]; then
-            echo -e "\nAvailable snapshots (excluding @current-root):"
-            if ! list_snapshots; then
-                continue
-            fi
-            
-            echo -e "\nType the name of the snapshot you would like to recover to $root.\n"
-        
-            read snapshot
-            
-            # Prevent restoring @current-root to itself
-            if [ "$snapshot" = "@current-root" ]; then
-                error "Cannot restore @current-root to itself."
-                continue
-            fi
-    
-            if [ -d "$mnt$snapshot_dir/$snapshot" ]; then
-            
-                if [ -d "$mnt$root" ]; then
-                    bcachefs subvolume delete $mnt$root
-                    sleep 1
-                    sync
-                    sleep 1
-                fi
+			cd /
+			umount "$new_root"
 
-                mv "$mnt$snapshot_dir/$snapshot/" $mnt$root/
-                echo -e "\n'$snapshot' recovered to $root.\n"
-                    
-            else
+			echo "All done. Root (/) has been restored from squashfs."
 
-                error "The snapshot '$snapshot' does not exist."
+		elif [[ "$key" = 'C' ]]; then
+			echo -e "\nEnter a name for the new snapshot:"
+			read snapshot_name
+			if [ -z "$snapshot_name" ]; then
+				error "Snapshot name cannot be empty."
+			else
+				snapshot_target="$snapshot_dir/@created-root-$snapshot_name"
+				if [ -d "$mnt$snapshot_target" ]; then
+					error "Snapshot $snapshot_target already exists."
+				else
+					echo "Create snapshot from $root to $snapshot_target? (y/n)"
+					read confirm
+					if [[ $confirm = 'y' ]]; then
+						bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_target"
+						echo "Snapshot created."
+					else
+						echo "Cancelled."
+					fi
+				fi
+			fi
 
-            fi
+		elif [[ "$key" = 'N' ]]; then
+			if [ -d "$mnt/etc" ]; then
+				echo -e "\nEnter a name for the new snapshot will be create from /:"
+				read snapshot_name
+				if [ -z "$snapshot_name" ]; then
+					error "Snapshot name cannot be empty."
+				else
+					snapshot_target="$snapshot_dir/@created-root-$snapshot_name"
+					if [ -d "$mnt$snapshot_target" ]; then
+						error "Snapshot $snapshot_target already exists."
+					else
+						echo "Create snapshot from / to $snapshot_target? (y/n)"
+						read confirm
+						if [[ $confirm = 'y' ]]; then
+							bcachefs subvolume snapshot "$mnt" "$mnt$snapshot_target"
+							echo "Snapshot created."
+						else
+							echo "Cancelled."
+						fi
+					fi
+				fi
+			else
+				error "No system found at /."
+			fi
 
-        elif [[ "$key" = 'r' ]]; then
-            echo -e "\nAvailable snapshots (excluding @current-root):"
-            if ! list_snapshots; then
-                continue
-            fi
-            
-            echo -e "\nType the name of the snapshot you would like to recover to $root.\n"
-        
-            read snapshot
-            
-            # Prevent restoring @current-root to itself
-            if [ "$snapshot" = "@current-root" ]; then
-                error "Cannot restore @current-root to itself."
-                continue
-            fi
-    
-            if [ -d "$mnt$snapshot_dir/$snapshot" ]; then
-            
-                if [ -d "$mnt$snapshot_dir/@previous-root" ]; then
-                    bcachefs subvolume delete "$mnt$snapshot_dir/@previous-root"
-                fi
+		elif [[ "$key" = 'E' ]]; then
+			echo -e "\nAvailable snapshots:"
+			if ! list_snapshots; then
+				continue
+			fi
+			echo -e "\nEnter the current name of the snapshot:"
+			read old_name
+			echo "Enter the new name for the snapshot:"
+			read new_name
+			if [ -z "$old_name" ] || [ -z "$new_name" ]; then
+				error "Names cannot be empty."
+			else
+				old_path="$snapshot_dir/$old_name"
+				new_path="$snapshot_dir/$new_name"
+				if [ -d "$mnt$old_path" ] && [ ! -d "$mnt$new_path" ] && [ "$old_name" != "@current-root" ]; then
+					echo "Rename $old_path to $new_path? (y/n)"
+					read confirm
+					if [[ $confirm = 'y' ]]; then
+						mv "$mnt$old_path" "$mnt$new_path"
+						echo "Snapshot renamed."
+					else
+						echo "Cancelled."
+					fi
+				else
+					error "Invalid old name or new name already exists, or trying to rename @current-root."
+				fi
+			fi
 
-                if [ -d "$mnt$root" ]; then
-                    bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_dir/@previous-root"
-                    bcachefs subvolume delete $mnt$root
-                fi
+		elif [[ "$key" = 'v' ]]; then
+			echo -e "\nAvailable files in $squashfs_dir:\n"
+			if list_squashfs; then
+				while true; do
+					echo -e "\nEnter the current name of the file (exactly as listed above):"
+					read old_squash_name
 
-                echo bcachefs subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
-                bcachefs subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
-                echo -e "\n'$snapshot' recovered to $root.\n"
-                    
-            else
-            
-                error "The snapshot '$snapshot' does not exist."
+					if [ -z "$old_squash_name" ]; then
+						error "File name cannot be empty."
+						continue
+					fi
 
-            fi
+					old_full_path="$mnt$squashfs_dir$old_squash_name"
 
-        elif [[ "$key" = 'e' ]]; then
+					if [ -f "$old_full_path" ]; then
+						echo -e "\nEnter the new name for the file (exactly as you want it):"
+						read new_squash_name
 
-            echo "Entering bash..."
-            bash
-    
-        elif [[ "$key" = 'p' ]]; then
-    
-            # Make sure there is a system at @root before proceeding
-            # You must keep .snapshots and @root in / or the system won't start
-            if [ ! -d $mnt/etc ]; then
+						if [ -z "$new_squash_name" ]; then
+							error "New name cannot be empty."
+							continue
+						fi
 
-                echo "Restoring / (excepting .snapshots and $root) and wait for a long time..."
-            
-                cp -a $mnt$root/bin /mnt/bin > /dev/null 2>&1
-                cp -a $mnt$root/boot /mnt/boot > /dev/null 2>&1
-                cp -a $mnt$root/dev /mnt/dev > /dev/null 2>&1
-                cp -a $mnt$root/efi /mnt/efi > /dev/null 2>&1
-                cp -a $mnt$root/etc /mnt/etc > /dev/null 2>&1
-                cp -a $mnt$root/home /mnt/home > /dev/null 2>&1
-                cp -a $mnt$root/lib /mnt/lib > /dev/null 2>&1
-                cp -a $mnt$root/lib64 /mnt/lib64 > /dev/null 2>&1
-                cp -a $mnt$root/'lost+found' /mnt/'lost+found' > /dev/null 2>&1
-                cp -a $mnt$root/opt /mnt/opt > /dev/null 2>&1
-                cp -a $mnt$root/proc /mnt/proc > /dev/null 2>&1
-                cp -a $mnt$root/root /mnt/root > /dev/null 2>&1
-                cp -a $mnt$root/run /mnt/run > /dev/null 2>&1
-                cp -a $mnt$root/sbin /mnt/sbin > /dev/null 2>&1
-                cp -a $mnt$root/srv /mnt/srv > /dev/null 2>&1
-                cp -a $mnt$root/sys /mnt/sys > /dev/null 2>&1
-                cp -a $mnt$root/tmp /mnt/tmp > /dev/null 2>&1
-                cp -a $mnt$root/usr /mnt/usr > /dev/null 2>&1
-                cp -a $mnt$root/var /mnt/var > /dev/null 2>&1
+						new_full_path="$mnt$squashfs_dir$new_squash_name"
 
-                echo "Done! restored / from @current-root"
-            
-            else
-            
-                error "Already have root system at /. Will not restore main system from @current-root."
-        
-            fi
+						if [ -f "$new_full_path" ]; then
+							error "A file with name '$new_squash_name' already exists."
+						else
+							echo "Rename $old_squash_name to $new_squash_name? (y/n)"
+							read confirm
+							if [[ $confirm = 'y' ]]; then
+								mv "$old_full_path" "$new_full_path"
+								echo "File renamed."
+							else
+								echo "Cancelled."
+							fi
+						fi
+						break
+					else
+						error "File not found: $old_squash_name"
+						echo "Please try again."
+						continue
+					fi
+				done
+			else
+				# Function already displayed error message and waited for enter
+				continue
+			fi
 
-        elif [[ "$key" = 'd' ]]; then
-    
-            # Make sure there is a system at @root before proceeding
-            # You must keep .snapshots, .squashfs and @root in / or the system won't start
-            if [ -d $mnt$root/etc ]; then
+		elif [[ "$key" = 'o' ]]; then
 
-                echo "Deleting / (excepting .snapshots, .squashfs and $root) and wait for a long time..."
-            
-                rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var > /dev/null 2>&1
-                echo "Done! deleted / (excepting .snapshots, .squashfs and $root)"
-            else
-            
-                error "No system located at $root. Will not delete main system."
-        
-            fi
+			[ $overlayFlag = 'true' ] && overlayFlag='false' || overlayFlag='true'
 
-        elif [[ "$key" = '' ]]; then  # ie., <ENTER> was pressed
-            
-            echo boot "$root"
-            boot "$root"
+			echo "overlayFlag=$overlayFlag"
 
-        elif [[ "$key" = 'q' ]]; then
+		elif [[ "$key" = 'w' ]]; then
 
-            echo "Exiting."
-            finished=true
+			[ $rorwFlag = 'true' ] && rorwFlag='false' || rorwFlag='true'
 
-            sleep 1
-        
-        else
+			echo "rorwFlag=$rorwFlag"
 
-            error "Not an known option ($key). Please try again."
+		elif [[ "$key" = 't' ]]; then
 
-        fi
+			[ $tmpfsFlag = 'true' ] && tmpfsFlag='false' || tmpfsFlag='true'
 
-    done
-    
-    sleep 1
+			echo "tmpfsFlag=$tmpfsFlag"
+
+		elif [[ "$key" = 'm' ]]; then
+
+			echo "FEATURE NOT CURRENTLY WORKING! (likely due to /etc/fstab overriding?)"
+
+			echo -e "\nType mount opts to add (will override current: $mountOpts):\n"
+
+			read mountOpts
+
+			echo -e "\nMounting options '$mountOpts' were added.\n"
+
+		elif [[ "$key" = 'n' ]]; then
+
+			if [ -d "$mnt/etc" ]; then
+
+				if [ ! -d "$mnt$root" ]; then
+
+					bcachefs subvolume snapshot "$mnt" "$mnt$root" && echo "$root snapshot created."
+				else
+
+					error "There is already a $root created."
+
+				fi
+
+			else
+
+				error "No system found at /."
+
+			fi
+
+		elif [[ "$key" = 'c' ]]; then
+
+			echo -e "\nType the path you'd like to boot from.\n"
+
+			read bootPath
+
+			boot "$bootPath"
+
+		elif [[ "$key" = 's' ]]; then
+
+			echo -e "\nAvailable snapshots:"
+			if ! list_snapshots; then
+				continue
+			fi
+
+			echo -e "\nType the name of the snapshot you would like to load.\n"
+
+			read snapshot
+
+			boot "$snapshot_dir/$snapshot"
+
+		elif [[ "$key" = 'b' ]]; then
+
+			boot /
+
+		elif [[ "$key" = 'R' ]]; then
+			echo -e "\nAvailable snapshots (excluding @current-root):"
+			if ! list_snapshots; then
+				continue
+			fi
+
+			echo -e "\nType the name of the snapshot you would like to recover to $root.\n"
+
+			read snapshot
+
+			# Prevent restoring @current-root to itself
+			if [ "$snapshot" = "@current-root" ]; then
+				error "Cannot restore @current-root to itself."
+				continue
+			fi
+
+			if [ -d "$mnt$snapshot_dir/$snapshot" ]; then
+
+				if [ -d "$mnt$root" ]; then
+					bcachefs subvolume delete $mnt$root
+					sleep 1
+					sync
+					sleep 1
+				fi
+
+				mv "$mnt$snapshot_dir/$snapshot/" $mnt$root/
+				echo -e "\n'$snapshot' recovered to $root.\n"
+
+			else
+
+				error "The snapshot '$snapshot' does not exist."
+
+			fi
+
+		elif [[ "$key" = 'r' ]]; then
+			echo -e "\nAvailable snapshots (excluding @current-root):"
+			if ! list_snapshots; then
+				continue
+			fi
+
+			echo -e "\nType the name of the snapshot you would like to recover to $root.\n"
+
+			read snapshot
+
+			# Prevent restoring @current-root to itself
+			if [ "$snapshot" = "@current-root" ]; then
+				error "Cannot restore @current-root to itself."
+				continue
+			fi
+
+			if [ -d "$mnt$snapshot_dir/$snapshot" ]; then
+
+				if [ -d "$mnt$snapshot_dir/@previous-root" ]; then
+					bcachefs subvolume delete "$mnt$snapshot_dir/@previous-root"
+				fi
+
+				if [ -d "$mnt$root" ]; then
+					bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_dir/@previous-root"
+					bcachefs subvolume delete $mnt$root
+				fi
+
+				echo bcachefs subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
+				bcachefs subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
+				echo -e "\n'$snapshot' recovered to $root.\n"
+
+			else
+
+				error "The snapshot '$snapshot' does not exist."
+
+			fi
+
+		elif [[ "$key" = 'e' ]]; then
+
+			echo "Entering bash..."
+			bash
+
+		elif [[ "$key" = 'p' ]]; then
+
+			# Make sure there is a system at @root before proceeding
+			# You must keep .snapshots and @root in / or the system won't start
+			if [ ! -d $mnt/etc ]; then
+
+				echo "Restoring / (excepting .snapshots and $root) and wait for a long time..."
+
+				cp -a $mnt$root/bin /mnt/bin >/dev/null 2>&1
+				cp -a $mnt$root/boot /mnt/boot >/dev/null 2>&1
+				cp -a $mnt$root/dev /mnt/dev >/dev/null 2>&1
+				cp -a $mnt$root/efi /mnt/efi >/dev/null 2>&1
+				cp -a $mnt$root/etc /mnt/etc >/dev/null 2>&1
+				cp -a $mnt$root/home /mnt/home >/dev/null 2>&1
+				cp -a $mnt$root/lib /mnt/lib >/dev/null 2>&1
+				cp -a $mnt$root/lib64 /mnt/lib64 >/dev/null 2>&1
+				cp -a $mnt$root/'lost+found' /mnt/'lost+found' >/dev/null 2>&1
+				cp -a $mnt$root/opt /mnt/opt >/dev/null 2>&1
+				cp -a $mnt$root/proc /mnt/proc >/dev/null 2>&1
+				cp -a $mnt$root/root /mnt/root >/dev/null 2>&1
+				cp -a $mnt$root/run /mnt/run >/dev/null 2>&1
+				cp -a $mnt$root/sbin /mnt/sbin >/dev/null 2>&1
+				cp -a $mnt$root/srv /mnt/srv >/dev/null 2>&1
+				cp -a $mnt$root/sys /mnt/sys >/dev/null 2>&1
+				cp -a $mnt$root/tmp /mnt/tmp >/dev/null 2>&1
+				cp -a $mnt$root/usr /mnt/usr >/dev/null 2>&1
+				cp -a $mnt$root/var /mnt/var >/dev/null 2>&1
+
+				echo "Done! restored / from @current-root"
+
+			else
+
+				error "Already have root system at /. Will not restore main system from @current-root."
+
+			fi
+
+		elif [[ "$key" = 'd' ]]; then
+
+			# Make sure there is a system at @root before proceeding
+			# You must keep .snapshots, .squashfs and @root in / or the system won't start
+			if [ -d $mnt$root/etc ]; then
+
+				echo "Deleting / (excepting .snapshots, .squashfs and $root) and wait for a long time..."
+
+				rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var >/dev/null 2>&1
+				echo "Done! deleted / (excepting .snapshots, .squashfs and $root)"
+			else
+
+				error "No system located at $root. Will not delete main system."
+
+			fi
+
+		elif [[ "$key" = '' ]]; then # ie., <ENTER> was pressed
+
+			echo boot "$root"
+			boot "$root"
+
+		elif [[ "$key" = 'q' ]]; then
+
+			echo "Exiting."
+			finished=true
+
+			sleep 1
+
+		else
+
+			error "Not an known option ($key). Please try again."
+
+		fi
+
+	done
+
+	sleep 1
 
 }
