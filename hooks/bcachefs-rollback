@@ -1,6 +1,5 @@
 #!/usr/bin/ash
 
-
 snapshot_dir=/.snapshots
 root="$snapshot_dir/@current-root"
 mountOpts='noatime,fix_errors'
@@ -8,7 +7,7 @@ new_root=/new_root
 user=user
 mnt=/mnt
 temp="$mnt/temp"            # Used for changing from ro to rw
-squashfs_dir='/.squashfs'    # Default squashfs directory
+squashfs_dir='/.squashfs/'  # Default squashfs directory
 efiPartNum='1'              # What partition is efi on? (leave blank to not mount)
 bootPartNum='2'             # What partition is boot on? (leave blank to not mount)
 
@@ -193,9 +192,11 @@ run_latehook() {
 ---Delete Options---
 <D> delete a snapshot
 <d> delete root system (Make sure you already have @current-root)
+<k> delete squashfs
 
 ---Edit Options---
 <E> rename a snapshot
+<v> rename squashfs
 
 ---Other Options---
 <w> add ro -> rw flag
@@ -316,7 +317,7 @@ run_latehook() {
             
             else
                 
-                mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root/"
+                mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashfsFile" --target "$new_root/"
 
             fi
     
@@ -348,6 +349,38 @@ run_latehook() {
                     error "Invalid snapshot name or cannot delete @current-root."
                 fi
             fi
+        
+        # New option: delete squashfs file
+        elif [[ "$key" = 'k' ]]; then
+            echo -e "\nAvailable squashfs files:\n"
+            if list_squashfs; then
+                echo -e "\nEnter the name of the squashfs file to delete (without path):\n"
+                read squashfs_to_delete
+                
+                # Add .squashfs extension if not present
+                if [[ "$squashfs_to_delete" != *.squashfs ]]; then
+                    squashfs_to_delete="$squashfs_to_delete.squashfs"
+                fi
+                
+                full_path="$mnt$squashfs_dir$squashfs_to_delete"
+                
+                if [ -f "$full_path" ]; then
+                    echo "Delete squashfs file $squashfs_to_delete? (y/n)"
+                    read confirm
+                    if [[ $confirm = 'y' ]]; then
+                        rm -f "$full_path"
+                        echo "Squashfs file deleted."
+                    else
+                        echo "Cancelled."
+                    fi
+                else
+                    error "Squashfs file not found: $squashfs_to_delete"
+                fi
+            else
+                # Function already displayed error message and waited for enter
+                continue
+            fi
+        
         elif [[ "$key" = 'y' ]]; then
             
             # List available squashfs files using the list_squashfs function
@@ -467,6 +500,56 @@ elif [[ "$key" = 'N' ]]; then
                 else
                     error "Invalid old name or new name already exists, or trying to rename @current-root."
                 fi
+            fi
+        
+        # New option: rename squashfs file
+        elif [[ "$key" = 'v' ]]; then
+            echo -e "\nAvailable squashfs files:\n"
+            if list_squashfs; then
+                echo -e "\nEnter the current name of the squashfs file (without path):\n"
+                read old_squash_name
+                
+                # Add .squashfs extension if not present
+                if [[ "$old_squash_name" != *.squashfs ]]; then
+                    old_squash_name="$old_squash_name.squashfs"
+                fi
+                
+                old_full_path="$mnt$squashfs_dir$old_squash_name"
+                
+                if [ -f "$old_full_path" ]; then
+                    echo -e "\nEnter the new name for the squashfs file (without path):\n"
+                    read new_squash_name
+                    
+                    if [ -z "$new_squash_name" ]; then
+                        error "New name cannot be empty."
+                        continue
+                    fi
+                    
+                    # Add .squashfs extension if not present
+                    if [[ "$new_squash_name" != *.squashfs ]]; then
+                        new_squash_name="$new_squash_name.squashfs"
+                    fi
+                    
+                    new_full_path="$mnt$squashfs_dir$new_squash_name"
+                    
+                    if [ -f "$new_full_path" ]; then
+                        error "A squashfs file with name '$new_squash_name' already exists."
+                    else
+                        echo "Rename $old_squash_name to $new_squash_name? (y/n)"
+                        read confirm
+                        if [[ $confirm = 'y' ]]; then
+                            mv "$old_full_path" "$new_full_path"
+                            echo "Squashfs file renamed."
+                        else
+                            echo "Cancelled."
+                        fi
+                    fi
+                else
+                    error "Squashfs file not found: $old_squash_name"
+                fi
+            else
+                # Function already displayed error message and waited for enter
+                continue
             fi
 
         elif [[ "$key" = 'o' ]]; then
