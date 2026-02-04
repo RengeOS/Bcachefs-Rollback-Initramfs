@@ -1,5 +1,7 @@
 #!/usr/bin/ash
 
+# --*--Do Not Modify The Variables Below Unless You Know What You Are Doing!--*--
+
 snapshot_dir=/.snapshots
 root="$snapshot_dir/@current-root"
 mountOpts='noatime,fix_errors'
@@ -11,6 +13,7 @@ squashfs_dir='/.squashfs/'  # Default squashfs directory
 efiPartNum='1'              # What partition is efi on? (leave blank to not mount)
 bootPartNum='2'             # What partition is boot on? (leave blank to not mount)
 
+
 # Useful file: /usr/lib/initcpio/init
 
 overlayFlag=false
@@ -18,6 +21,7 @@ tmpfsFlag=false
 squashfsFlag=false
 rorwFlag=false
 
+# --*-------------------------------------------------------------------------*--
 # Function to list snapshots excluding @current-root for safety.
 list_snapshots() {
     if [ -d "$mnt$snapshot_dir" ]; then
@@ -41,7 +45,7 @@ list_snapshots() {
 list_squashfs() {
     if [ -d "$mnt$squashfs_dir" ]; then
         # List only .squashfs files in the directory
-        local squashFiles=$(ls "$mnt$squashfs_dir"/*.squashfs 2>/dev/null | xargs -I {} basename {} 2>/dev/null)
+        local squashFiles=$(ls "$mnt$squashfs_dir"*.squashfs 2>/dev/null | xargs -I {} basename {} 2>/dev/null)
         if [ -z "$squashFiles" ]; then
             echo "There's no squashfs file here. Press [enter] to return."
             read -n 1
@@ -230,7 +234,7 @@ run_latehook() {
 
             mkdir -p "$mnt$Target"
 
-            rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ --exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ --exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ --exclude=$mnt/ --exclude=$snapshot_dir/"
+            rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ --exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ --exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ --exclude=$mnt/ --exclude=$snapshot_dir/ --exclude=$squashfs_dir"
 
 
             rsync --dry-run -v $rsync_params "$mnt$Source" "$mnt$Target" | less
@@ -349,8 +353,8 @@ run_latehook() {
                     error "Invalid snapshot name or cannot delete @current-root."
                 fi
             fi
-        
-        # New option: delete squashfs file
+
+
         elif [[ "$key" = 'k' ]]; then
             echo -e "\nAvailable squashfs files:\n"
             if list_squashfs; then
@@ -501,8 +505,8 @@ elif [[ "$key" = 'N' ]]; then
                     error "Invalid old name or new name already exists, or trying to rename @current-root."
                 fi
             fi
-        
-        # New option: rename squashfs file
+
+
         elif [[ "$key" = 'v' ]]; then
             echo -e "\nAvailable squashfs files:\n"
             if list_squashfs; then
@@ -742,10 +746,10 @@ elif [[ "$key" = 'N' ]]; then
             # You must keep .snapshots and @root in / or the system won't start
             if [ -d $mnt$root/etc ]; then
 
-                echo "Deleting / (excepting .snapshots and $root) and wait for a long time..."
+                echo "Deleting / (excepting .snapshots, .squashfs and $root) and wait for a long time..."
             
                 rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var > /dev/null 2>&1
-                echo "Done! deleted / (excepting .snapshots and $root)"
+                echo "Done! deleted / (excepting .snapshots, .squashfs and $root)"
             else
             
                 error "No system located at $root. Will not delete main system."
