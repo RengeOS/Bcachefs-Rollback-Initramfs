@@ -185,7 +185,8 @@ run_latehook() {
 <r> restore other snapshot to @current-root (with backup old @current-root)
 <R> restore other snapshot to @current-root (no backup old @current-root)
 <u> restore other snapshot using rsync
-<y> restore squashfs
+<y> restore squashfs to @current-root (or other snapshot)
+<Y> restore squashfs to root (/)
 
 ---Create Options---
 <C> create a new snapshot from @current-root
@@ -430,6 +431,44 @@ run_latehook() {
             umount "$new_root"
             
             echo "All done"
+
+        elif [[ "$key" = 'Y' ]]; then
+            
+            # List available squashfs files using the list_squashfs function
+            echo -e "\nAvailable squashfs files:\n"
+            if list_squashfs; then
+                echo -e "\nEnter the name of the squashfs file (without path):\n"
+                read customSquashFile
+                
+                if [[ "$customSquashFile" != *.squashfs ]]; then
+                    customSquashFile="$customSquashFile.squashfs"
+                fi
+                
+                if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
+                    error "Squashfs file not found: $customSquashFile"
+                    continue
+                fi
+            else
+                # Function already displayed error message and waited for enter
+                continue
+            fi
+            
+            # Mount the squashfs file to $new_root
+            mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root"
+            
+            # Delete everything in /mnt except .snapshots and .squashfs (similar to option 'd')
+            echo "Deleting / (excepting .snapshots and .squashfs) and restoring from squashfs..."
+            
+            rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var > /dev/null 2>&1
+            
+            # Copy from squashfs to /mnt
+            cd "$new_root"
+            cp -a . /mnt/
+
+            cd /
+            umount "$new_root"
+            
+            echo "All done. Root (/) has been restored from squashfs."
 
         elif [[ "$key" = 'C' ]]; then
             echo -e "\nEnter a name for the new snapshot:"
@@ -743,7 +782,7 @@ elif [[ "$key" = 'N' ]]; then
         elif [[ "$key" = 'd' ]]; then
     
             # Make sure there is a system at @root before proceeding
-            # You must keep .snapshots and @root in / or the system won't start
+            # You must keep .snapshots, .squashfs and @root in / or the system won't start
             if [ -d $mnt$root/etc ]; then
 
                 echo "Deleting / (excepting .snapshots, .squashfs and $root) and wait for a long time..."
