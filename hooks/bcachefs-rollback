@@ -1,10 +1,5 @@
 #!/usr/bin/ash
 
-# $root (or /@root) will be where all the system files are stored once you've made
-# a snapshot to /@root (via the 'create @root snapshot from /' option.)
-# At that point you'll be able to delete all the files in your original / directory
-# (with the exception of .snapshots and @root) by issuing the 'delete root system'
-# option in the menu.
 
 snapshot_dir=/.snapshots
 root="$snapshot_dir/@current-root"
@@ -13,8 +8,7 @@ new_root=/new_root
 user=user
 mnt=/mnt
 temp="$mnt/temp"            # Used for changing from ro to rw
-squashPath='/.squashfs/'    # Default squashfs directory
-squashFile='root.squashfs'  # Default name of created squashfile, will be changed by user input
+squashfs_dir='/.squashfs'    # Default squashfs directory
 efiPartNum='1'              # What partition is efi on? (leave blank to not mount)
 bootPartNum='2'             # What partition is boot on? (leave blank to not mount)
 
@@ -39,6 +33,26 @@ list_snapshots() {
         fi
     else
         echo "There's no snapshot here. Press [enter] to return."
+        read -n 1
+        return 1
+    fi
+}
+
+# Function to list available squashfs files in the squashfs directory
+list_squashfs() {
+    if [ -d "$mnt$squashfs_dir" ]; then
+        # List only .squashfs files in the directory
+        local squashFiles=$(ls "$mnt$squashfs_dir"/*.squashfs 2>/dev/null | xargs -I {} basename {} 2>/dev/null)
+        if [ -z "$squashFiles" ]; then
+            echo "There's no squashfs file here. Press [enter] to return."
+            read -n 1
+            return 1
+        else
+            echo "$squashFiles"
+            return 0
+        fi
+    else
+        echo "There's no squashfs file here. Press [enter] to return."
         read -n 1
         return 1
     fi
@@ -164,7 +178,7 @@ run_latehook() {
 <c> boot custom dir
 
 ---Restore Options---
-<p> restore root system from @current-root (using cp)
+<p> restore root system from @current-root (using cp command)
 <r> restore other snapshot to @current-root (with backup old @current-root)
 <R> restore other snapshot to @current-root (no backup old @current-root)
 <u> restore other snapshot using rsync
@@ -241,8 +255,8 @@ run_latehook() {
             
         elif [[ "$key" = 'z' ]]; then
             
-            echo -e "\nEnter a source to create from.
-(eg., '/', '/@root', '/.snapshots/first')\n"
+            echo -e "\nEnter a source path to create from.
+(eg., '/', '/.snapshots/@current-root')\n"
 
             read squashSource
 
@@ -259,21 +273,20 @@ run_latehook() {
             
             cd $mnt$squashSource
 
-            mksquashfs . "$mnt$squashPath$customSquashFile" -noappend -no-recovery -mem-percent 20 -comp lz4 -e root.squashfs -e "$customSquashFile" -e home/$user/.cache/ -e home/$user/.local/share/Trash/ -e mnt/ -e var/cache/pacman/ -e .snapshots/*
+            mksquashfs . "$mnt$squashfs_dir$customSquashFile" -noappend -no-recovery -mem-percent 20 -comp lz4 -e root.squashfs -e "$customSquashFile" -e home/$user/.cache/ -e home/$user/.local/share/Trash/ -e mnt/ -e var/cache/pacman/ -e .snapshots/* -e .squashfs/*
 
             [ $efiPartNum ] && umount $mnt/efi
             [ $bootPartNum ] && umount $mnt/boot
 
             sleep 1
 
-            ls -lah "$mnt$squashPath$customSquashFile"
+            ls -lah "$mnt$squashfs_dir$customSquashFile"
         
         elif [[ "$key" = 'x' ]]; then
 
-            # List available squashfs files
-            if [ -d "$mnt/.squashfs" ]; then
-                echo -e "\nAvailable squashfs files:\n"
-                ls "$mnt/.squashfs/"*.squashfs 2>/dev/null || echo "No squashfs files found."
+            # List available squashfs files using the list_squashfs function
+            echo -e "\nAvailable squashfs files:\n"
+            if list_squashfs; then
                 echo -e "\nEnter the name of the squashfs file (without path):\n"
                 read customSquashFile
                 
@@ -281,12 +294,12 @@ run_latehook() {
                     customSquashFile="$customSquashFile.squashfs"
                 fi
                 
-                if [ ! -f "$mnt/.squashfs/$customSquashFile" ]; then
+                if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
                     error "Squashfs file not found: $customSquashFile"
                     continue
                 fi
             else
-                error "Squashfs directory not found."
+                # Function already displayed error message and waited for enter
                 continue
             fi
 
@@ -294,16 +307,16 @@ run_latehook() {
                 
                 echo -e "\nExtracting archive to RAM. Please be patient...\n"
                 mount -t tmpfs -o size=80% none $new_root
-                unsquashfs -d $new_root -f "$mnt/.squashfs/$customSquashFile"
+                unsquashfs -d $new_root -f "$mnt$squashfs_dir/$customSquashFile"
             
             elif [ $overlayFlag = 'true' ]; then
 
-                mount -t squashfs -o loop --source "$mnt/.squashfs/$customSquashFile" --target "$new_root/"
+                mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root/"
                 create_overlay
             
             else
                 
-                mount -t squashfs -o loop --source "$mnt/.squashfs/$customSquashFile" --target "$new_root/"
+                mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root/"
 
             fi
     
@@ -337,10 +350,9 @@ run_latehook() {
             fi
         elif [[ "$key" = 'y' ]]; then
             
-            # List available squashfs files
-            if [ -d "$mnt/.squashfs" ]; then
-                echo -e "\nAvailable squashfs files:\n"
-                ls "$mnt/.squashfs/"*.squashfs 2>/dev/null || echo "No squashfs files found."
+            # List available squashfs files using the list_squashfs function
+            echo -e "\nAvailable squashfs files:\n"
+            if list_squashfs; then
                 echo -e "\nEnter the name of the squashfs file (without path):\n"
                 read customSquashFile
                 
@@ -348,12 +360,12 @@ run_latehook() {
                     customSquashFile="$customSquashFile.squashfs"
                 fi
                 
-                if [ ! -f "$mnt/.squashfs/$customSquashFile" ]; then
+                if [ ! -f "$mnt$squashfs_dir/$customSquashFile" ]; then
                     error "Squashfs file not found: $customSquashFile"
                     continue
                 fi
             else
-                error "Squashfs directory not found."
+                # Function already displayed error message and waited for enter
                 continue
             fi
             
@@ -363,7 +375,7 @@ run_latehook() {
 
             read restorePath
             
-            mount -t squashfs -o loop --source "$mnt/.squashfs/$customSquashFile" --target "$new_root"
+            mount -t squashfs -o loop --source "$mnt$squashfs_dir/$customSquashFile" --target "$new_root"
         
             if [ "$mnt$restorePath" = "$root" ] && [ -d "$mnt$restorePath" ]; then
                 echo "Deleting subvolume in current path..."
@@ -416,7 +428,7 @@ elif [[ "$key" = 'N' ]]; then
             else 
                 echo "Create snapshot from / to $snapshot_target? (y/n)"
                 read confirm
-                if [[ $confirm = 'y' ]; then
+                if [[ $confirm = 'y' ]]; then
                     bcachefs subvolume snapshot "$mnt" "$mnt$snapshot_target"
                     echo "Snapshot created."
                 else
@@ -446,7 +458,7 @@ elif [[ "$key" = 'N' ]]; then
                 if [ -d "$mnt$old_path" ] && [ ! -d "$mnt$new_path" ] && [ "$old_name" != "@current-root" ]; then
                     echo "Rename $old_path to $new_path? (y/n)"
                     read confirm
-                    if [[ $confirm = 'y' ]; then
+                    if [[ $confirm = 'y' ]]; then
                         mv "$mnt$old_path" "$mnt$new_path"
                         echo "Snapshot renamed."
                     else
@@ -558,7 +570,7 @@ elif [[ "$key" = 'N' ]]; then
                 echo -e "\n'$snapshot' recovered to $root.\n"
                     
             else
-            
+
                 error "The snapshot '$snapshot' does not exist."
 
             fi
