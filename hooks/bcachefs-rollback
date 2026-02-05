@@ -8,11 +8,11 @@ mountOpts='noatime,fix_errors'
 new_root=/new_root
 user=user
 mnt=/mnt
-temp="$mnt/temp"           # Used for changing from ro to rw
-squashfs_dir='/.squashfs/' # Default squashfs directory
-squashfs_dir_no_slash='/.squashfs'
-efiPartNum='1'  # What partition is efi on? (leave blank to not mount)
-bootPartNum='2' # What partition is boot on? (leave blank to not mount)
+temp="$mnt/temp"           			# Used for changing from ro to rw
+squashfs_dir='/.squashfs/' 			# Default squashfs directory
+squashfs_dir_no_slash='/.squashfs'	# Ensure that rsync does not have path errors
+efiPartNum='1'  					# What partition is efi on? (leave blank to not mount)
+bootPartNum='2' 					# What partition is boot on? (leave blank to not mount)
 
 # Useful file: /usr/lib/initcpio/init
 
@@ -175,7 +175,7 @@ run_latehook() {
 ---Boot Options---
 <b> boot root system (/)
 <s> boot into a snapshot (/.snapshots/name-snapshot-folder)
-<x> boot into squashfs (name-squashfs-file.sfsquash)
+<x> boot into squashfs (/.squashfs/name-squashfs-file)
 <c> boot custom dir
 
 ---Restore Options---
@@ -232,7 +232,7 @@ run_latehook() {
 
 			mkdir -p "$mnt$Target"
 
-			rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ --exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ --exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ --exclude=$mnt/ --exclude=$snapshot_dir/ --exclude=$squashfs_dir"
+			rsync_params="-axHAXSW --del --exclude=/lost+found/ --exclude=/dev/ --exclude=/proc/ --exclude=/sys/ --exclude=/tmp/ --exclude=/run/ --exclude=/var/tmp/ --exclude=/var/lib/dhcpcd/ --exclude=/var/log/ --exclude=/var/lib/systemd/random-seed --exclude=/root/.cache/ --exclude=/boot/ --exclude=/efi/ --exclude=/media/ --exclude=/mnt/ --exclude=/home/$user/.cache/ --exclude=/home/$user/.local/share/Trash/ --exclude=$mnt/ --exclude=$snapshot_dir/ --exclude=$squashfs_dir_no_slash/"
 
 			rsync --dry-run -v $rsync_params "$mnt$Source" "$mnt$Target" | less
 
@@ -269,6 +269,11 @@ run_latehook() {
 
 			echo -e "\nEnter a name for the squashfs file (without path, or 'b' to go back):\n"
 			read customSquashFile
+
+			if [[ -e "$squashfs_dir$customSquashFile" ]]; then
+				echo "$customSquashFile already exists in $squashfs_dir folder."
+				continue
+			fi
 
 			# Check if user wants to go back
 			if [[ "$customSquashFile" == "b" ]]; then
