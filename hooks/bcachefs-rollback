@@ -8,11 +8,11 @@ mountOpts='noatime,fix_errors'
 new_root=/new_root
 user=user
 mnt=/mnt
-temp="$mnt/temp"           			# Used for changing from ro to rw
-squashfs_dir='/.squashfs/' 			# Default squashfs directory
-squashfs_dir_no_slash='/.squashfs'	# Ensure that rsync does not have path errors
-efiPartNum='1'  					# What partition is efi on? (leave blank to not mount)
-bootPartNum='2' 					# What partition is boot on? (leave blank to not mount)
+temp="$mnt/temp"                   # Used for changing from ro to rw
+squashfs_dir='/.squashfs/'         # Default squashfs directory
+squashfs_dir_no_slash='/.squashfs' # Ensure that rsync does not have path errors
+efiPartNum='1'                     # What partition is efi on? (leave blank to not mount)
+bootPartNum='2'                    # What partition is boot on? (leave blank to not mount)
 
 # Useful file: /usr/lib/initcpio/init
 
@@ -22,6 +22,12 @@ squashfsFlag=false
 rorwFlag=false
 
 # --*-------------------------------------------------------------------------*--
+# Function to display message and wait for Enter key
+press_enter_to_continue() {
+	echo -e "\nPress [enter] to continue or go back to menu"
+	read -n 1
+}
+
 # Function to list snapshots excluding @current-root for safety.
 list_snapshots() {
 	if [ -d "$mnt$snapshot_dir" ]; then
@@ -128,6 +134,7 @@ create_tmpfs() {
 error() {
 
 	echo -e "\n<<< $1 >>>\n"
+	press_enter_to_continue
 
 }
 
@@ -243,9 +250,11 @@ run_latehook() {
 				rsync --info=progress2 $rsync_params "$mnt$Source" "$mnt$Target"
 
 				echo "Sync finished."
+				press_enter_to_continue
 
 			else
 				echo "Exiting."
+				press_enter_to_continue
 			fi
 
 		elif [[ "$key" = 'f' ]]; then
@@ -253,6 +262,7 @@ run_latehook() {
 			echo 'To save logs run: bcachefs fsck -p > $mnt/log_file.txt 2>&1'
 			echo bcachefs fsck -p ${root_part}
 			bcachefs fsck -p ${root_part}
+			press_enter_to_continue
 
 		elif [[ "$key" = 'z' ]]; then
 
@@ -299,6 +309,7 @@ run_latehook() {
 			sleep 1
 
 			ls -lah "$mnt$squashfs_dir$customSquashFile"
+			press_enter_to_continue
 
 		elif [[ "$key" = 'x' ]]; then
 			# List all available files in squashfs directory
@@ -357,8 +368,10 @@ run_latehook() {
 					if [[ $confirm = 'y' ]]; then
 						bcachefs subvolume delete "$mnt$snapshot_path"
 						echo "Snapshot deleted."
+						press_enter_to_continue
 					else
 						echo "Cancelled."
+						press_enter_to_continue
 					fi
 				else
 					error "Invalid snapshot name or cannot delete @current-root."
@@ -385,8 +398,10 @@ run_latehook() {
 						if [[ $confirm = 'y' ]]; then
 							rm -f "$full_path"
 							echo "File deleted."
+							press_enter_to_continue
 						else
 							echo "Cancelled."
+							press_enter_to_continue
 						fi
 						break
 					else
@@ -449,6 +464,7 @@ run_latehook() {
 			umount "$new_root"
 
 			echo "All done"
+			press_enter_to_continue
 
 		elif [[ "$key" = 'Y' ]]; then
 			# List available squashfs files in squashfs directory
@@ -491,6 +507,7 @@ run_latehook() {
 			umount "$new_root"
 
 			echo "All done. Root (/) has been restored from selected squashfs."
+			press_enter_to_continue
 
 		elif [[ "$key" = 'C' ]]; then
 			echo -e "\nEnter a name for the new snapshot:"
@@ -507,8 +524,10 @@ run_latehook() {
 					if [[ $confirm = 'y' ]]; then
 						bcachefs subvolume snapshot "$mnt$root" "$mnt$snapshot_target"
 						echo "Snapshot created."
+						press_enter_to_continue
 					else
 						echo "Cancelled."
+						press_enter_to_continue
 					fi
 				fi
 			fi
@@ -529,8 +548,10 @@ run_latehook() {
 						if [[ $confirm = 'y' ]]; then
 							bcachefs subvolume snapshot "$mnt" "$mnt$snapshot_target"
 							echo "Snapshot created."
+							press_enter_to_continue
 						else
 							echo "Cancelled."
+							press_enter_to_continue
 						fi
 					fi
 				fi
@@ -558,8 +579,10 @@ run_latehook() {
 					if [[ $confirm = 'y' ]]; then
 						mv "$mnt$old_path" "$mnt$new_path"
 						echo "Snapshot renamed."
+						press_enter_to_continue
 					else
 						echo "Cancelled."
+						press_enter_to_continue
 					fi
 				else
 					error "Invalid old name or new name already exists, or trying to rename @current-root."
@@ -599,8 +622,10 @@ run_latehook() {
 							if [[ $confirm = 'y' ]]; then
 								mv "$old_full_path" "$new_full_path"
 								echo "File renamed."
+								press_enter_to_continue
 							else
 								echo "Cancelled."
+								press_enter_to_continue
 							fi
 						fi
 						break
@@ -620,18 +645,21 @@ run_latehook() {
 			[ $overlayFlag = 'true' ] && overlayFlag='false' || overlayFlag='true'
 
 			echo "overlayFlag=$overlayFlag"
+			press_enter_to_continue
 
 		elif [[ "$key" = 'w' ]]; then
 
 			[ $rorwFlag = 'true' ] && rorwFlag='false' || rorwFlag='true'
 
 			echo "rorwFlag=$rorwFlag"
+			press_enter_to_continue
 
 		elif [[ "$key" = 't' ]]; then
 
 			[ $tmpfsFlag = 'true' ] && tmpfsFlag='false' || tmpfsFlag='true'
 
 			echo "tmpfsFlag=$tmpfsFlag"
+			press_enter_to_continue
 
 		elif [[ "$key" = 'm' ]]; then
 
@@ -642,6 +670,7 @@ run_latehook() {
 			read mountOpts
 
 			echo -e "\nMounting options '$mountOpts' were added.\n"
+			press_enter_to_continue
 
 		elif [[ "$key" = 'n' ]]; then
 
@@ -650,6 +679,7 @@ run_latehook() {
 				if [ ! -d "$mnt$root" ]; then
 
 					bcachefs subvolume snapshot "$mnt" "$mnt$root" && echo "$root snapshot created."
+					press_enter_to_continue
 				else
 
 					error "There is already a $root created."
@@ -714,6 +744,7 @@ run_latehook() {
 
 				mv "$mnt$snapshot_dir/$snapshot/" $mnt$root/
 				echo -e "\n'$snapshot' recovered to $root.\n"
+				press_enter_to_continue
 
 			else
 
@@ -751,6 +782,7 @@ run_latehook() {
 				echo bcachefs subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
 				bcachefs subvolume snapshot "$mnt$snapshot_dir/$snapshot" $mnt$root
 				echo -e "\n'$snapshot' recovered to $root.\n"
+				press_enter_to_continue
 
 			else
 
@@ -792,6 +824,7 @@ run_latehook() {
 				cp -a $mnt$root/var /mnt/var >/dev/null 2>&1
 
 				echo "Done! restored / from @current-root"
+				press_enter_to_continue
 
 			else
 
@@ -809,6 +842,7 @@ run_latehook() {
 
 				rm -rf /mnt/bin /mnt/boot /mnt/dev /mnt/efi /mnt/etc /mnt/home /mnt/lib /mnt/lib64 /mnt/'lost+found' /mnt/opt /mnt/proc /mnt/root /mnt/run /mnt/sbin /mnt/srv /mnt/sys /mnt/tmp /mnt/usr /mnt/var >/dev/null 2>&1
 				echo "Done! deleted / (excepting .snapshots, .squashfs and $root)"
+				press_enter_to_continue
 			else
 
 				error "No system located at $root. Will not delete main system."
