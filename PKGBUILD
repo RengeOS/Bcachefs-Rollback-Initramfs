@@ -1,7 +1,7 @@
 # Maintainer: Gia Phu <crystalforceix@gmail.com>
 pkgname=bcachefs-rollback-initramfs
-pkgver=1.0.0
-pkgrel=2
+pkgver=1.0.1
+pkgrel=1
 pkgdesc="Bcachefs snapshots rollback hook for mkinitcpio"
 arch=('any')
 url="https://github.com/RengeOS/Bcachefs-Rollback-Initramfs"
